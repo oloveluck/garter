@@ -1,0 +1,8 @@
+def length(l):
+  if l == nil: 0
+  else:
+    1 + length(l[1])
+
+
+let mylist = (1, (2, (3, nil))) in
+  length(mylist)

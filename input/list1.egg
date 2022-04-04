@@ -1,0 +1,4 @@
+def map_to_1(list):
+  if list[1] == nil: (1, nil) else: (1, map_to_1(list[1]))
+
+map_to_1( (0, (2, (3, nil))))

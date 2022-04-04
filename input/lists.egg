@@ -1,0 +1,30 @@
+def link(first, rest):
+  (first, rest)
+
+def length(l):
+  if l == nil: 0
+  else:
+    1 + length(l[1])
+  
+def sum(l):
+  if l == nil: 0
+  else:
+    l[0] + sum(l[1])
+
+def append(l1, l2):
+  if l1 == nil: l2
+  else:
+    link(l1[0], append(l1[1], l2))
+
+def reverse(l1):
+  if l1 == nil: l1
+  else:
+    append(reverse(l1[1]), link(l1[0], nil))
+
+let mylist = link(1, link(2, link(3, nil))) in
+  (
+    length(mylist), 
+    sum(mylist), 
+    append(mylist, mylist), 
+    reverse(mylist)
+    )

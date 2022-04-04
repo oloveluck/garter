@@ -1,0 +1,9 @@
+def link(a,b):
+  (a,b)
+
+def length(l):
+  if l == false: 0
+  else:
+    1 + length(l[1])
+
+length(link(1, false))
