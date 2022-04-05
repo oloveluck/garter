@@ -3,7 +3,10 @@ open Pretty
 open Phases
 open Exprs
 open Assembly
+open Naivestack
+open Freevars
 open Errors
+open ExtLib
 module StringSet = Set.Make (String)
 
 type 'a name_envt = (string * 'a) list
@@ -53,6 +56,118 @@ let native_fun_bindings = []
 let initial_fun_env = prim_bindings @ native_fun_bindings
 
 (* You may find some of these helpers useful *)
+let error_code_to_str (code : int64) : string =
+  if code = err_ARITH_NOT_NUM
+  then "err_arith_not_num"
+  else if code = err_COMP_NOT_NUM
+  then "err_comp_not_num"
+  else if code = err_LOGIC_NOT_BOOL
+  then "err_logic_not_bool"
+  else if code = err_IF_NOT_BOOL
+  then "err_if_not_bool"
+  else if code = err_OVERFLOW
+  then "err_overflow"
+  else "err_unexpected"
+;;
+
+let callee_end_function = [ IMov (Reg RSP, Reg RBP); IPop (Reg RBP); IRet ]
+let error_code_to_label (code : int64) : arg = Label (error_code_to_str code)
+
+let check_is_bool (error_code : int64) =
+  [ ITest (Reg RAX, HexConst bool_tag); IJz (error_code_to_label error_code) ]
+;;
+
+let check_is_number (error_code : int64) =
+  [ IMov (Reg RSI, Reg RAX)
+  ; IMov (Reg RAX, Const num_tag_mask)
+  ; ITest (Reg RSI, Reg RAX)
+  ]
+  @ [ IJnz (error_code_to_label error_code) ]
+  @ [ IMov (Reg RAX, Reg RSI) ]
+;;
+
+let is_bool_instructions (tag : tag) =
+  (* [ IMov (Reg RSI, Reg RAX)
+  ; IMov (Reg RAX, const_false)
+  ; IMov (Reg RDI, Reg RAX)
+  ; IMov (Reg RAX, Reg RSI)
+  ; IShl (Reg RAX, Sized (BYTE_PTR, Const 63L))
+  ; IOr (Reg RAX, Reg RDI)
+  ]
+   *)
+  let d = sprintf "is_bool_done_%d" tag in
+  [ IMov (Reg RSI, Reg RAX)
+  ; IMov (Reg RAX, Const bool_tag_mask)
+  ; IAnd (Reg RAX, Reg RSI)
+  ; IMov (Reg RDI, Const 7L)
+  ; ICmp (Reg RAX, Reg RDI)
+  ; IMov (Reg RAX, const_true)
+  ; IJe (Label d)
+  ; IMov (Reg RAX, const_false)
+  ; ILabel d
+  ]
+;;
+
+
+let funv_to_op (funv : 'a immexpr) : prim1 =
+  match funv with
+  | ImmId ("add1", _) -> Add1
+  | ImmId ("sub1", _) -> Sub1
+  | ImmId ("isbool", _) -> IsBool
+  | ImmId ("isnum", _) -> IsNum
+  | ImmId ("istuple", _) -> IsTuple
+  | ImmId (name, _) -> raise (InternalCompilerError (sprintf "tried to call %s" name))
+  | _ -> raise (InternalCompilerError "tried to create operation function for non-id")
+;;
+
+let is_tuple_instructions (tag : tag) =
+  let d = sprintf "is_tup_done_%d" tag in
+  [ IMov (Reg RSI, Reg RAX)
+  ; IMov (Reg RAX, Const 15L)
+  ; IAnd (Reg RAX, Reg RSI)
+  ; IMov (Reg RDI, Const 1L)
+  ; ICmp (Reg RAX, Reg RDI)
+  ; IMov (Reg RAX, const_true)
+  ; IJe (Label d)
+  ; IMov (Reg RAX, const_false)
+  ; ILabel d
+  ]
+;;
+
+
+let function_prelude (stack_depth : int) =
+  [ IPush (Reg RBP) ]
+  @ [ IMov (Reg RBP, Reg RSP) ]
+  @ [ ISub (Reg RSP, Const (Int64.mul (Int64.of_int stack_depth) 8L)) ]
+;;
+
+let function_postlude = [ IMov (Reg RSP, Reg RBP); IPop (Reg RBP); IRet ]
+
+let error_codes =
+  [ err_COMP_NOT_NUM
+  ; err_ARITH_NOT_NUM
+  ; err_LOGIC_NOT_BOOL
+  ; err_IF_NOT_BOOL
+  ; err_OVERFLOW
+  ]
+;;
+
+let generate_error_instructions (error_codes : int64 list) : instruction list =
+  let generate_error_label (error_code : int64) (labels : instruction list)
+      : instruction list
+    =
+    let instructions =
+      [ IMov (Reg RDI, Const error_code); ICall (Label "error") ] @ callee_end_function
+    in
+    (ILabel (error_code_to_str error_code) :: instructions) @ labels
+  in
+  List.fold_right generate_error_label error_codes []
+;;
+
+let print_instructions =
+  let instructions = [ IMov (Reg RDI, Reg RAX); ICall (Label "print") ] in
+  instructions
+;;
 
 let rec find ls x =
   match ls with
@@ -781,15 +896,6 @@ let anf (p : tag program) : unit aprogram =
   helpP p
 ;;
 
-let free_vars (e : 'a aexpr) : string list =
-  raise (NotYetImplemented "Implement free_vars for expressions")
-;;
-
-(* IMPLEMENT THIS FROM YOUR PREVIOUS ASSIGNMENT *)
-let naive_stack_allocation (prog : tag aprogram) : tag aprogram * arg name_envt name_envt =
-  raise (NotYetImplemented "Implement stack allocation for garter")
-;;
-
 let count_vars e =
   let rec helpA e =
     match e with
@@ -838,7 +944,431 @@ and reserve size tag =
 (* Additionally, you are provided an initial environment of values that you may want to
    assume should take up the first few stack slots.  See the compiliation of Programs
    below for one way to use this ability... *)
-and compile_fun name args body initial_env = raise (NotYetImplemented "NYI: compile_fun")
+
+and compile_fun (funname: string) (args : string list) (expr : 'a aexpr) (stack_env : naive_stack_env) = 
+  let closure = CLambda(args, expr, 0) in 
+  compile_cexpr closure funname stack_env (List.length args) false
+
+and compile_aexpr (e : tag aexpr) (funname : string) (env : naive_stack_env) (num_args : int) (is_tail : bool)
+    : instruction list
+  =
+  match e with
+  | ALet (name, value, body, tag) ->
+    compile_cexpr value funname env num_args is_tail
+    @ [ IMov (lookup funname name env, Reg RAX) ]
+    @ compile_aexpr body funname env num_args is_tail
+  | ACExpr c -> compile_cexpr c funname env num_args is_tail
+  | ALetRec (bindings, body, tag) ->
+    (List.map
+       (fun (name, value) ->
+        let new_env : naive_stack_env = add_to_fun_env funname name (RegOffset (16, RBP)) env in
+         compile_cexpr value funname new_env num_args is_tail
+         @ [ IMov (lookup funname name env, Reg RAX) ])
+       bindings
+    |> List.flatten)
+    @ compile_aexpr body funname env num_args is_tail
+  | ASeq (first, rest, tag) ->
+    compile_cexpr first funname env num_args is_tail @ compile_aexpr rest funname env num_args is_tail
+
+and lookup (funname : string) (name : string) (env : naive_stack_env) =
+  match List.find_opt (fun ((f, _)) -> funname = f) env with
+  | Some (_, name_env) -> 
+    (match List.find_opt (fun (n, _) -> name = n) name_env with
+    | Some (_, arg) -> arg
+    | None -> raise (InternalCompilerError (sprintf "failed to lookup name %s " name)))
+  | None -> raise (InternalCompilerError (sprintf "failed to lookup function %s" funname))
+
+and compile_native_app (fun_id : tag immexpr) (funname : string) (args : tag immexpr list) (env : arg name_envt)
+  =
+  match fun_id with
+  | ImmId (name, _) ->
+    let arg_instrustions =
+      List.mapi
+        (fun index arg ->
+          compile_imm arg fun_id funname env
+          @ [ IMov (Reg RAX, Reg (List.nth first_six_args_registers index)) ])
+        args
+      |> List.flatten
+    in
+    arg_instrustions @ [ ICall (Label name) ]
+  | _ -> raise (InternalCompilerError "invalid attempt to compile a native function")
+
+and compile_prim1 (p1 : prim1) (e : tag immexpr) (funname : string) (env : arg name_envt) (tag : tag) =
+  match p1 with
+  | IsBool -> compile_imm e funname env @ is_bool_instructions tag
+  | IsNum -> compile_imm e funname env @ [ IShl (Reg RAX, Const 63L); IXor (Reg RAX, const_true) ]
+  | Not ->
+    compile_imm e funname env
+    @ check_is_bool err_LOGIC_NOT_BOOL
+    @ [ IMov (Reg RSI, Reg RAX); IMov (Reg RAX, const_true); IXor (Reg RAX, Reg RSI) ]
+    @ [ IMov (Reg RSI, Reg RAX); IMov (Reg RAX, const_false); IOr (Reg RAX, Reg RSI) ]
+  | Add1 ->
+    compile_imm e funname env
+    @ check_is_number err_ARITH_NOT_NUM
+    @ [ IAdd (Reg RAX, Const 2L) ]
+    @ [ IJo (error_code_to_label err_OVERFLOW) ]
+  | Sub1 ->
+    compile_imm e funname env
+    @ check_is_number err_ARITH_NOT_NUM
+    @ [ ISub (Reg RAX, Const 2L) ]
+    @ [ IJo (error_code_to_label err_OVERFLOW) ]
+  | Print -> compile_imm e funnname env @ print_instructions
+  | IsTuple -> is_tuple_instructions tag
+  | PrintStack -> raise (NotYetImplemented "Fill in here")
+
+and compile_prim2
+    (p2 : prim2)
+    (e1 : tag immexpr)
+    (e2 : tag immexpr)
+    (funname : string)
+    (env : arg name_envt)
+    (tag : tag)
+  =
+  match p2 with
+  | CheckSize -> []
+  | Plus ->
+    compile_imm e1 funname env
+    @ check_is_number err_ARITH_NOT_NUM
+    @ [ IMov (Reg RDX, Reg RAX) ]
+    @ compile_imm e2 funname env
+    @ check_is_number err_ARITH_NOT_NUM
+    @ [ IAdd (Reg RAX, Reg RDX) ]
+    @ [ IJo (error_code_to_label err_OVERFLOW) ]
+  | Minus ->
+    compile_imm e1 funname env
+    @ check_is_number err_ARITH_NOT_NUM
+    @ [ IMov (Reg RDX, Reg RAX) ]
+    @ compile_imm e2 funname env
+    @ check_is_number err_ARITH_NOT_NUM
+    @ [ ISub (Reg RDX, Reg RAX) ]
+    @ [ IMov (Reg RAX, Reg RDX) ]
+    @ [ IJo (error_code_to_label err_OVERFLOW) ]
+  | Times ->
+    compile_imm e1 funname env
+    @ check_is_number err_ARITH_NOT_NUM
+    @ [ IMov (Reg RDX, Reg RAX) ]
+    @ compile_imm e2 funnname env
+    @ check_is_number err_ARITH_NOT_NUM
+    @ [ ISar (Reg RAX, Const 1L) ]
+    @ [ IMul (Reg RAX, Reg RDX) ]
+    @ [ IJo (error_code_to_label err_OVERFLOW) ]
+  | And ->
+    let false_label = sprintf "false#%d" tag in
+    let done_label = sprintf "done#%d" tag in
+    compile_imm e1 funnname env
+    @ check_is_bool err_LOGIC_NOT_BOOL
+    @ [ ISar (Reg RAX, Const 63L); ITest (Reg RAX, Const 0x1L); IJz (Label false_label) ]
+    @ compile_imm e2 funnname env
+    @ check_is_bool err_LOGIC_NOT_BOOL
+    @ [ ISar (Reg RAX, Const 63L)
+      ; ITest (Reg RAX, Const 0x1L)
+      ; IJz (Label false_label)
+      ; IMov (Reg RDX, const_true)
+      ; IJmp (Label done_label)
+      ; ILabel false_label
+      ; IMov (Reg RDX, const_false)
+      ; ILabel done_label
+      ; IMov (Reg RAX, Reg RDX)
+      ]
+  | Or ->
+    let true_label = sprintf "true#%d" tag in
+    let done_label = sprintf "done#%d" tag in
+    compile_imm e1 funname env
+    @ check_is_bool err_LOGIC_NOT_BOOL
+    @ [ ISar (Reg RAX, Const 63L); ITest (Reg RAX, Const 0x1L); IJnz (Label true_label) ]
+    @ compile_imm e2 funname env
+    @ check_is_bool err_LOGIC_NOT_BOOL
+    @ [ ISar (Reg RAX, Const 63L)
+      ; ITest (Reg RAX, Const 0x1L)
+      ; IJnz (Label true_label)
+      ; IMov (Reg RDX, const_false)
+      ; IJmp (Label done_label)
+      ; ILabel true_label
+      ; IMov (Reg RDX, const_true)
+      ; ILabel done_label
+      ; IMov (Reg RAX, Reg RDX)
+      ]
+  | Greater ->
+    let greater_label = sprintf "greater#%d" tag in
+    compile_imm e1 funname env
+    @ check_is_number err_COMP_NOT_NUM
+    @ [ IMov (Reg RDX, Reg RAX) ]
+    @ compile_imm e2 funname env
+    @ check_is_number err_COMP_NOT_NUM
+    @ [ ICmp (Reg RDX, Reg RAX) ]
+    @ [ IMov (Reg RAX, const_true) ]
+    @ [ IJg (Label greater_label) ]
+    @ [ IMov (Reg RAX, const_false) ]
+    @ [ ILabel greater_label ]
+  | GreaterEq ->
+    let greater_eq_label = sprintf "greater_eq#%d" tag in
+    compile_imm e1 funname env
+    @ check_is_number err_COMP_NOT_NUM
+    @ [ IMov (Reg RDX, Reg RAX) ]
+    @ compile_imm e2 funname env
+    @ check_is_number err_COMP_NOT_NUM
+    @ [ ICmp (Reg RDX, Reg RAX) ]
+    @ [ IMov (Reg RAX, const_true) ]
+    @ [ IJge (Label greater_eq_label) ]
+    @ [ IMov (Reg RAX, const_false) ]
+    @ [ ILabel greater_eq_label ]
+  | Less ->
+    let less_label = sprintf "less#%d" tag in
+    compile_imm e1 funname env
+    @ check_is_number err_COMP_NOT_NUM
+    @ [ IMov (Reg RDX, Reg RAX) ]
+    @ compile_imm e2 funname env
+    @ check_is_number err_COMP_NOT_NUM
+    @ [ ICmp (Reg RDX, Reg RAX) ]
+    @ [ IMov (Reg RAX, const_true) ]
+    @ [ IJl (Label less_label) ]
+    @ [ IMov (Reg RAX, const_false) ]
+    @ [ ILabel less_label ]
+  | LessEq ->
+    let leq_label = sprintf "leq#%d" tag in
+    compile_imm e1 funname env
+    @ check_is_number err_COMP_NOT_NUM
+    @ [ IMov (Reg RDX, Reg RAX) ]
+    @ compile_imm e2 funname env
+    @ check_is_number err_COMP_NOT_NUM
+    @ [ ICmp (Reg RDX, Reg RAX) ]
+    @ [ IMov (Reg RAX, const_true) ]
+    @ [ IJle (Label leq_label) ]
+    @ [ IMov (Reg RAX, const_false) ]
+    @ [ ILabel leq_label ]
+  | Eq ->
+    compile_imm e1 funname env
+    @ [ IMov (Reg RDI, Reg RAX) ]
+    @ compile_imm e2 funname env
+    @ [ IMov (Reg RSI, Reg RAX) ]
+    @ [ ICall (Label "equal") ]
+
+and compile_cexpr (e : tag cexpr) (funname : string) (env : naive_stack_env) (num_args : int) (is_tail : bool)
+    : instruction list
+  =
+  match e with
+  | CIf (cond, _then, _else, tag) ->
+    let else_label = sprintf "else#%d" tag in
+    let done_label = sprintf "done#%d" tag in
+    let c_then = compile_aexpr _then funname env num_args is_tail in
+    let c_else = compile_aexpr _else funname env num_args is_tail in
+    let c_cond = compile_imm cond funname env in
+    c_cond
+    @ check_is_bool err_IF_NOT_BOOL
+    @ [ IShr (Reg RAX, Const 63L) ]
+    @ [ ITest (Reg RAX, Const 0x1L) ]
+    @ [ IJz (Label else_label) ]
+    @ c_then
+    @ [ IJmp (Label done_label) ]
+    @ [ ILabel else_label ]
+    @ c_else
+    @ [ ILabel done_label ]
+  | CPrim1 (op, e, tag) -> compile_prim1 op e funname env tag
+  | CPrim2 (op, e1, e2, tag) -> compile_prim2 op e1 e2 funname env tag
+  | CImmExpr immexpr -> compile_imm immexpr funname env
+  | CTuple (values, _) ->
+    [ IMov (Reg RDI, Reg R15) ]
+    @
+    let len = List.length values in
+    [ IMov (Reg RAX, Sized (QWORD_PTR, Const (Int64.of_int len)))
+    ; IMov (RegOffset (0, R15), Reg RAX)
+    ; IAdd (Reg R15, Const 8L)
+    ]
+    @ (List.map
+         (fun value ->
+           compile_imm value funname env
+           @ [ IMov (RegOffset (0, R15), Reg RAX); IAdd (Reg R15, Const 8L) ])
+         values
+      |> List.flatten)
+    @ (if len mod 2 == 0
+      then [ (* IMov (Reg R15, const_nil);  *) IAdd (Reg R15, Const 8L) ]
+      else [])
+    (* let r15_offset = 1 + len + if len mod 2 == 0 then 1 else 0 in *)
+    @ [ IAdd (Reg RDI, Sized (QWORD_PTR, Const 1L)) ]
+    @ [ IMov (Reg RAX, Reg RDI) ]
+    (* [ IAdd (Reg RDI, Sized (QWORD_PTR, Const 7L)) ] @ [ IMov (Reg RAX, Reg RDI) ] *)
+    (* [ IMov (Reg RAX, RegOffset (~-r15_offset * 8, R15)) ] *)
+  | CSetItem (tup_expr, num_expr, value_expr, _) ->
+    let tup = compile_imm tup_expr funname env in
+    let num = compile_imm num_expr funname env in
+    let value = compile_imm value_expr funname env in
+    [ ILineComment "Compile index" ]
+    @ num
+    @ [ ISar (Reg RAX, Const 1L) ]
+    (* @ check_is_number err_COMP_NOT_NUM *)
+    (* bounds check *)
+    @ [ IMov (Reg R11, Reg RAX) ]
+    @ [ ILineComment "Compile Tuple" ]
+    @ tup
+    (*check is tuple*)
+    @ [ ISub (Reg RAX, Sized (QWORD_PTR, Const 1L)) ]
+    @ [ IMov (Reg RDI, Reg RAX) ]
+    @ [ ILineComment "Compile value" ]
+    @ value
+    @ [ ILineComment "set the item" ]
+    @ [ IMov (RegOffsetReg (RDI, R11, 8, 8), Reg RAX) ]
+  | CGetItem (tup_expr, num_expr, tag) ->
+    let high_label = sprintf "out_of_bounds_high#%d" tag in
+    let low_label = sprintf "out_of_bounds_low#%d" tag in
+    let test_low_label = sprintf "test_low_label#%d" tag in
+    let test_high_label = sprintf "test_high_label#%d" tag in
+    let nil_label = sprintf "nil_label#%d" tag in
+    let done_label = sprintf "done#%d" tag in
+    let tup = compile_imm tup_expr funname env in
+    let num = compile_imm num_expr funname env in
+    num
+    @ [ ISar (Reg RAX, Const 1L) ]
+    (* @ check_is_number err_COMP_NOT_NUM *)
+    (* check bounds *)
+    @ [ IMov (Reg R11, Reg RAX) ]
+    @ tup
+    @ [ IMov (Reg RDX, Const 1L) ]
+    @ [ ICmp (Reg RAX, Reg RDX) ]
+    @ [ IJe (Label nil_label) ]
+    @ [ IJmp (Label test_high_label) ]
+    @ [ ILabel nil_label ]
+    @ [ IMov (Reg RSI, Reg RAX) ]
+    @ [ IMov (Reg RDI, Const err_NIL_DEREF) ]
+    @ [ ICall (Label "error") ]
+    @ [ ILabel test_high_label ]
+    @ [ ISub (Reg RAX, Sized (QWORD_PTR, Const 1L)) ]
+    @ [ ICmp (Reg R11, RegOffset (0, RAX))
+      ; IJge (Label high_label)
+      ; IJmp (Label test_low_label)
+      ; ILabel high_label
+      ; IMov (Reg RSI, RegOffset (0, RAX))
+      ; IMov (Reg RDI, Const err_GET_HIGH_INDEX)
+      ; ICall (Label "error")
+      ; ILabel test_low_label
+      ; IMov (Reg RDX, Const 0L)
+      ; ICmp (Reg R11, Reg RDX)
+      ; IJl (Label low_label)
+      ; IJmp (Label done_label)
+      ; ILabel low_label
+      ; IMov (Reg RSI, RegOffset (0, RAX))
+      ; IMov (Reg RDI, Const err_GET_LOW_INDEX)
+      ; ICall (Label "error")
+      ; ILabel done_label
+      ]
+    @ (* check is tuple *)
+    [ IMov (Reg RAX, RegOffsetReg (RAX, R11, 8, 8)) ]
+  | CLambda (binds, body, tag) ->
+    let name = sprintf "temp_closure_%d" tag in
+    let after = sprintf "after_%d" tag in
+    let frees = free_vars body binds in
+    let num_frees = List.length frees in
+    let heap_offset = 24 + (num_frees * 8) + if num_frees mod 2 = 0 then 8 else 0 in
+    (* let env = allocate_cexpr e 1 in *)
+    [ IJmp (Label after) ]
+    @ [ ILabel name ]
+    (* body preamble *)
+    @ [ IPush (Reg RBP) ]
+    @ [ IMov (Reg RBP, Reg RSP) ]
+    (* allocate space for free vars *)
+    @ [ ISub (Reg RSP, Const (Int64.of_int (8 * num_frees))) ]
+    (* move self arg into R11 *)
+    @ [ IMov (Reg R11, RegOffset (16, RBP)) ]
+    (* untag the self argument *)
+    @ [ ISub (Reg R11, Const 5L) ]
+    (* adding vars from heap into closure *)
+    @ [ ILineComment "get closed over variables from the heap" ]
+    @ [ ILineComment (sprintf "free variables: %s" (dump frees)) ]
+    @ (List.mapi
+         (fun index _ ->
+           [ IMov (Reg RAX, RegOffset ((index * 8) + 24, R11)) ]
+           @ [ IMov (RegOffset (~-8 * (index + 1), RBP), Reg RAX) ]
+           (* [IMov (Reg RAX, RegOffset(24, R11))]
+          IPush (Sized (QWORD_PTR, RegOffset ((index * 8) + 24, R11)))) *))
+         frees
+      |> List.flatten)
+    (* / body preamble *)
+    (* body *)
+    @ [ ILineComment "body start" ]
+    @ [ ILineComment (sprintf "env : %s" (dump env)) ]
+    @ compile_aexpr body funname env num_args is_tail
+    @ [ ILineComment "body end" ]
+    (* / body *)
+    (* body postamble *)
+    @ [ IMov (Reg RSP, Reg RBP) ]
+    @ [ IPop (Reg RBP) ]
+    @ [ IRet ]
+    (* body postamble *)
+    @ [ ILabel after ]
+    (* move arity into first position *)
+    @ [ IMov (Reg RDI, Const (Int64.of_int (List.length binds))) ]
+    @ [ IShl (Reg RDI, Const 2L) ]
+    @ [ IMov (RegOffset (0, R15), Reg RDI) ]
+    (* move code_ptr into second pos*)
+    @ [ IMov (Reg RDI, Label name) ]
+    @ [ IMov (RegOffset (8, R15), Reg RDI) ]
+    (* move num frees into third pos *)
+    @ [ IMov (Reg RDI, Const (Int64.of_int num_frees)) ]
+    @ [ IMov (RegOffset (16, R15), Reg RDI) ]
+    (* move frees into spots 4-n *)
+    @ [ ILineComment "move the closed over values onto heap offsets" ]
+    @ (List.mapi
+         (fun index name ->
+           [ IMov (Reg RDI, lookup funname name env) ]
+           @ [ IMov (RegOffset ((index * 8) + 24, R15), Reg RDI) ])
+         frees
+      |> List.flatten)
+    (* put closure into RAX *)
+    @ [ IMov (Reg RAX, Reg R15) ]
+    (* tag closure *)
+    @ [ IAdd (Reg RAX, Const 5L) ]
+    (* offset R15 *)
+    @ [ IAdd (Reg R15, Const (Int64.of_int heap_offset)) ]
+  | CApp (funv, args, call_type, tag) ->
+    (match call_type with
+    | Prim -> compile_prim1 (funv_to_op funv) (List.first args) funname env tag
+    | Native -> compile_native_app funv funname args env
+    | _ ->
+      let is_fun = sprintf "is_fun#%d" tag in
+      let eq_arity = sprintf "eq_arity#%d" tag in
+      [ ILineComment "get function" ]
+      @ compile_imm funv funname env
+      (* check is fun & arity *)
+      @ [ ILineComment "check fun" ]
+      @ [ IMov (Reg RDX, Reg RAX) ]
+      @ [ IMov (Reg RDI, Const bool_tag) ]
+      @ [ IAnd (Reg RDX, Reg RDI) ]
+      @ [ IMov (Reg RDI, Const 5L) ]
+      @ [ ICmp (Reg RDX, Reg RDI) ]
+      @ [ IJe (Label is_fun) ]
+      @ [ IMov (Reg RSI, Reg RAX) ]
+      @ [ IMov (Reg RDI, Const err_CALL_NOT_CLOSURE) ]
+      @ [ ICall (Label "error") ]
+      @ [ ILabel is_fun ]
+      @ [ ILineComment "check arity" ]
+      @ [ IMov (Reg RSI, Const (Int64.of_int (List.length args))) ]
+      @ [ IShl (Reg RSI, Const 2L) ]
+      @ [ IMov (Reg RDX, RegOffset (~-5, RAX)) ]
+      @ [ ICmp (Reg RSI, Reg RDX) ]
+      @ [ IJe (Label eq_arity) ]
+      @ [ IMov (Reg RDI, Const err_CALL_ARITY_ERR) ]
+      @ [ ICall (Label "error") ]
+      (* push arguments onto stack *)
+      @ [ ILabel eq_arity ]
+      @ [ ILineComment "push args onto stack" ]
+      @ (List.rev args
+        |> List.map (fun arg -> compile_imm arg funname env @ [ IPush (Reg RAX) ])
+        |> List.flatten)
+      @ compile_imm funv env
+      @ [ ILineComment "push RAX onto stack" ]
+      @ [ IPush (Reg RAX) ]
+      (* @ [ IAdd (Reg RAX, Const 3L) ] *)
+      @ [ ILineComment "call function" ]
+      @ [ ICall (RegOffset (3, RAX)) ]
+      @ [ IAdd (Reg RSP, Const (Int64.of_int ((List.length args + 1) * 8))) ])
+
+and compile_imm (e : 'a immexpr) (funname : string) (env : naive_stack_env) =
+  match e with
+  | ImmNum (n, _) -> [ IMov (Reg RAX, Const (Int64.shift_left n 1)) ]
+  | ImmBool (true, _) -> [ IMov (Reg RAX, const_true) ]
+  | ImmBool (false, _) -> [ IMov (Reg RAX, const_false) ]
+  | ImmId (x, _) -> [ IMov (Reg RAX, lookup funname x env)  ]
+  | ImmNil _ -> [ IMov (Reg RAX, const_nil) ]
+
 
 and args_help args regs =
   match args, regs with
@@ -1033,3 +1563,4 @@ let compile_to_string ?(no_builtins = false) (prog : sourcespan program pipeline
   |> add_phase locate_bindings naive_stack_allocation
   |> add_phase result compile_prog
 ;;
+
