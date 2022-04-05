@@ -4,6 +4,7 @@ open Exprs
 open Assembly
 open Find
 open Freevars
+open ExtLib
 
 (* Returns the stack-index (in words) of the deepest stack index used for any 
    of the variables in this expression *)
@@ -46,32 +47,45 @@ let rec deepest_stack e env =
   max (helpA e) 0
 ;;
 
-let rec allocate_aexpr (expr : tag aexpr) (si : int) : arg envt =
+let rec add_to_fun_env (funname : string) (name : string) (arg: arg) (env : arg name_envt name_envt): arg name_envt name_envt = 
+  match env with 
+  | [] -> [funname, [name, arg]]
+  | (envname, l)::rest -> 
+    if funname = envname 
+    then (envname, (name,arg)::l)::rest 
+    else (envname, l):: add_to_fun_env funname name arg rest
+
+let rec allocate_aexpr (expr : tag aexpr) (current_funname : string) (si : int) (env_acc : arg name_envt name_envt) : arg name_envt name_envt =
   match expr with
   | ALet (name, rhs, body, _) ->
-    [ name, RegOffset (~-si * 8, RBP) ]
-    @ allocate_cexpr rhs (si + 1) []
-    @ allocate_aexpr body (si + 1)
-  | ACExpr c -> allocate_cexpr c si []
-  | ASeq (first, rest, _) -> allocate_cexpr first si [] @ allocate_aexpr rest si
+    let arg = RegOffset (~-si * 8, RBP) in
+    let arg_added_env = add_to_fun_env current_funname name arg env_acc in 
+    let rhs_env = allocate_cexpr rhs (si + 1) [] current_funname arg_added_env in
+    allocate_aexpr body current_funname (si + 1) rhs_env
+  | ACExpr c -> allocate_cexpr c si [] current_funname env_acc
+  | ASeq (first, rest, _) -> allocate_cexpr first si [] current_funname env_acc @ allocate_aexpr rest current_funname si env_acc
   (* make sure name is bound to the correct closure offset *)
   | ALetRec (bindings, body, _) ->
     let bindings_env =
       List.mapi
         (fun index (name, value) ->
           (* [ name, RegOffset (~-(si + index) * 8, RBP) ] *)
+          let arg = 
           [ name, RegOffset (~-8 * (si + index), RBP) ]
-          @ allocate_cexpr value (si + 1 + index) [ name ])
+          @ allocate_cexpr value (si + 1 + index) [ name ] current_funname env_acc)
         bindings
       |> List.flatten
     in
-    let body_env = allocate_aexpr body si in
-    bindings_env @ body_env
+    let body_env = allocate_aexpr body current_funname si env_acc in
+    []
 
-and allocate_cexpr (expr : tag cexpr) (si : int) (free_env : string list) : arg envt =
+and allocate_cexpr (expr : tag cexpr) (si : int) (free_env : string list) (current_funname: string) (env_acc arg name_envt name_envt) : arg name_envt name_envt =
   match expr with
-  | CIf (_, t, e, _) -> allocate_aexpr t si @ allocate_aexpr e si
-  | CLambda (args, body, _) ->
+  | CIf (_, cond, body, tag) -> 
+    let new_env = allocate_aexpr cond current_funname si env_acc @ allocate_aexpr body current_funname si env_acc
+    (current_funname, new_env) @ new_env
+  | CLambda (args, body, tag) ->
+    let name = sprintf "closure#%s" tag in
     let frees = free_vars body args @ free_env |> List.sort String.compare in
     let arg_bindings =
       List.mapi
@@ -84,11 +98,11 @@ and allocate_cexpr (expr : tag cexpr) (si : int) (free_env : string list) : arg 
           (fun (i : int) (name : string) -> name, RegOffset (~-8 * (i + 1), RBP))
         frees
     in
-    arg_bindings @ free_bindings @ allocate_aexpr body (List.length frees * 8)
+    arg_bindings @ free_bindings @ allocate_aexpr body name (List.length frees * 8)
   | _ -> []
 ;;
 
-let naive_stack_allocation (prog : tag aprogram) : tag aprogram * arg envt =
+let naive_stack_allocation (prog : tag aprogram) : tag aprogram * arg name_envt name_envt =
   match prog with
   | AProgram (expr, tag) ->
     let exp_envt = allocate_aexpr expr 1 in

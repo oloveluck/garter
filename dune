@@ -1,6 +1,6 @@
 (library
   (name garter_impl)
-  (modules assembly compile errors exprs phases pretty runner lexer parser)
+  (modules assembly compile naivestack freevars find errors exprs phases pretty runner lexer parser)
   (libraries ounit2 extlib unix)
   (wrapped false))
 
