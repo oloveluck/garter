@@ -4,7 +4,7 @@ open Exprs
 open Assembly
 open Find
 open Freevars
-open ExtLib
+open Printf
 
 (* Returns the stack-index (in words) of the deepest stack index used for any 
    of the variables in this expression *)
@@ -47,40 +47,95 @@ let rec deepest_stack e env =
   max (helpA e) 0
 ;;
 
-let rec add_to_fun_env (funname : string) (name : string) (arg: arg) (env : arg name_envt name_envt): arg name_envt name_envt = 
-  match env with 
-  | [] -> [funname, [name, arg]]
-  | (envname, l)::rest -> 
-    if funname = envname 
-    then (envname, (name,arg)::l)::rest 
-    else (envname, l):: add_to_fun_env funname name arg rest
+let rec add_to_fun_env
+    (funname : string)
+    (name : string)
+    (arg : arg)
+    (env : arg name_envt name_envt)
+    : arg name_envt name_envt
+  =
+  match env with
+  | [] -> [ funname, [ name, arg ] ]
+  | (envname, l) :: rest ->
+    if funname = envname
+    then (envname, (name, arg) :: l) :: rest
+    else (envname, l) :: add_to_fun_env funname name arg rest
+;;
 
-let rec allocate_aexpr (expr : tag aexpr) (current_funname : string) (si : int) (env_acc : arg name_envt name_envt) : arg name_envt name_envt =
+type naive_stack_env = arg name_envt name_envt
+
+let rec allocate_aexpr
+    (expr : tag aexpr)
+    (funname : string)
+    (si : int)
+    (env : naive_stack_env)
+    : naive_stack_env
+  =
   match expr with
-  | ALet (name, rhs, body, _) ->
-    let arg = RegOffset (~-si * 8, RBP) in
-    let arg_added_env = add_to_fun_env current_funname name arg env_acc in 
-    let rhs_env = allocate_cexpr rhs (si + 1) [] current_funname arg_added_env in
-    allocate_aexpr body current_funname (si + 1) rhs_env
-  | ACExpr c -> allocate_cexpr c si [] current_funname env_acc
-  | ASeq (first, rest, _) -> allocate_cexpr first si [] current_funname env_acc @ allocate_aexpr rest current_funname si env_acc
-  (* make sure name is bound to the correct closure offset *)
+  | ALet (name, rhs, body, tag) ->
+    let new_env = add_to_fun_env funname name (RegOffset (~-si * 8, RBP)) env in
+    let rhs_env = allocate_cexpr rhs funname (si + 1) new_env in
+    let body_env = allocate_aexpr body funname (si + 1) rhs_env in
+    body_env
   | ALetRec (bindings, body, _) ->
-    let bindings_env =
-      List.mapi
-        (fun index (name, value) ->
-          (* [ name, RegOffset (~-(si + index) * 8, RBP) ] *)
-          let arg = 
-          [ name, RegOffset (~-8 * (si + index), RBP) ]
-          @ allocate_cexpr value (si + 1 + index) [ name ] current_funname env_acc)
-        bindings
-      |> List.flatten
-    in
-    let body_env = allocate_aexpr body current_funname si env_acc in
-    []
+    let bindings_env = rec_bindings_to_env bindings funname env si in
+    let body_env = allocate_aexpr body funname (List.length bindings + si) bindings_env in
+    body_env
+  | ACExpr expr -> allocate_cexpr expr funname si env
+  | ASeq (first, rest, _) ->
+    let first_env = allocate_cexpr first funname si env in
+    allocate_aexpr rest funname si first_env
+(* | _ -> [] *)
 
-and allocate_cexpr (expr : tag cexpr) (si : int) (free_env : string list) (current_funname: string) (env_acc arg name_envt name_envt) : arg name_envt name_envt =
+and rec_bindings_to_env
+    (bindings : (string * tag cexpr) list)
+    (funname : string)
+    (env : naive_stack_env)
+    (si : int)
+    : naive_stack_env
+  =
+  match bindings with
+  | (name, value) :: rest ->
+    let lhs_env = add_to_fun_env funname name (RegOffset (~-8 * si, RBP)) env in
+    let rhs_env = allocate_cexpr value funname si lhs_env in
+    rec_bindings_to_env rest funname rhs_env (si + 1)
+  | [] -> env
+
+and lambda_args_to_env
+    (args : string list)
+    (funname : string)
+    (index : int)
+    (env : naive_stack_env)
+  =
+  match args with
+  | name :: rest ->
+    let new_env =
+      add_to_fun_env funname name (RegOffset (8 + ((index + 2) * 8), RBP)) env
+    in
+    lambda_args_to_env rest funname (index + 1) new_env
+  | [] -> env
+
+and allocate_cexpr
+    (expr : tag cexpr)
+    (funname : string)
+    (si : int)
+    (env : naive_stack_env)
+    : naive_stack_env
+  =
   match expr with
+  | CLambda (args, body, tag) ->
+    let new_name = sprintf "closure#%d" tag in
+    let args_env = lambda_args_to_env args new_name 0 env in
+    let body_env = allocate_aexpr body new_name si args_env in
+    body_env
+  | CIf (_, t, e, _) ->
+    let t_env = allocate_aexpr t funname si env in
+    let e_env = allocate_aexpr e funname si t_env in
+    e_env
+  | _ -> env
+;;
+
+(* match expr with
   | CIf (_, cond, body, tag) -> 
     let new_env = allocate_aexpr cond current_funname si env_acc @ allocate_aexpr body current_funname si env_acc
     (current_funname, new_env) @ new_env
@@ -99,13 +154,12 @@ and allocate_cexpr (expr : tag cexpr) (si : int) (free_env : string list) (curre
         frees
     in
     arg_bindings @ free_bindings @ allocate_aexpr body name (List.length frees * 8)
-  | _ -> []
-;;
+  | _ -> [] *)
 
 let naive_stack_allocation (prog : tag aprogram) : tag aprogram * arg name_envt name_envt =
   match prog with
   | AProgram (expr, tag) ->
-    let exp_envt = allocate_aexpr expr 1 in
+    let exp_envt = allocate_aexpr expr "our_code_starts_here" 1 [] in
     AProgram (expr, tag), exp_envt
 ;;
 
