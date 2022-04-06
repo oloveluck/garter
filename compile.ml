@@ -945,9 +945,10 @@ and reserve size tag =
    assume should take up the first few stack slots.  See the compiliation of Programs
    below for one way to use this ability... *)
 
-and compile_fun (funname: string) (args : string list) (expr : 'a aexpr) (stack_env : naive_stack_env) = 
+and compile_fun (funname: string) (args : string list) (expr : 'a aexpr) (stack_env : naive_stack_env) : (instruction list * instruction list * instruction list) = 
   let closure = CLambda(args, expr, 0) in 
-  compile_cexpr closure funname stack_env (List.length args) false
+  (* what do we put for the prologe and epiloge??*)
+  [], compile_cexpr closure funname stack_env (List.length args) false, []
 
 and compile_aexpr (e : tag aexpr) (funname : string) (env : naive_stack_env) (num_args : int) (is_tail : bool)
     : instruction list
@@ -978,14 +979,15 @@ and lookup (funname : string) (name : string) (env : naive_stack_env) =
     | None -> raise (InternalCompilerError (sprintf "failed to lookup name %s " name)))
   | None -> raise (InternalCompilerError (sprintf "failed to lookup function %s" funname))
 
-and compile_native_app (fun_id : tag immexpr) (funname : string) (args : tag immexpr list) (env : arg name_envt)
+and compile_native_app (fun_id : tag immexpr) (funname : string) (args : tag immexpr list) (env : arg name_envt name_envt)
   =
   match fun_id with
   | ImmId (name, _) ->
     let arg_instrustions =
       List.mapi
         (fun index arg ->
-          compile_imm arg fun_id funname env
+        (* TODO NOT SURE WHAT TO DO HERE*)
+          compile_imm arg name env
           @ [ IMov (Reg RAX, Reg (List.nth first_six_args_registers index)) ])
         args
       |> List.flatten
@@ -993,7 +995,7 @@ and compile_native_app (fun_id : tag immexpr) (funname : string) (args : tag imm
     arg_instrustions @ [ ICall (Label name) ]
   | _ -> raise (InternalCompilerError "invalid attempt to compile a native function")
 
-and compile_prim1 (p1 : prim1) (e : tag immexpr) (funname : string) (env : arg name_envt) (tag : tag) =
+and compile_prim1 (p1 : prim1) (e : tag immexpr) (funname : string) (env : arg name_envt name_envt) (tag : tag) =
   match p1 with
   | IsBool -> compile_imm e funname env @ is_bool_instructions tag
   | IsNum -> compile_imm e funname env @ [ IShl (Reg RAX, Const 63L); IXor (Reg RAX, const_true) ]
@@ -1012,7 +1014,7 @@ and compile_prim1 (p1 : prim1) (e : tag immexpr) (funname : string) (env : arg n
     @ check_is_number err_ARITH_NOT_NUM
     @ [ ISub (Reg RAX, Const 2L) ]
     @ [ IJo (error_code_to_label err_OVERFLOW) ]
-  | Print -> compile_imm e funnname env @ print_instructions
+  | Print -> compile_imm e funname env @ print_instructions
   | IsTuple -> is_tuple_instructions tag
   | PrintStack -> raise (NotYetImplemented "Fill in here")
 
@@ -1021,7 +1023,7 @@ and compile_prim2
     (e1 : tag immexpr)
     (e2 : tag immexpr)
     (funname : string)
-    (env : arg name_envt)
+    (env : arg name_envt name_envt)
     (tag : tag)
   =
   match p2 with
@@ -1047,7 +1049,7 @@ and compile_prim2
     compile_imm e1 funname env
     @ check_is_number err_ARITH_NOT_NUM
     @ [ IMov (Reg RDX, Reg RAX) ]
-    @ compile_imm e2 funnname env
+    @ compile_imm e2 funname env
     @ check_is_number err_ARITH_NOT_NUM
     @ [ ISar (Reg RAX, Const 1L) ]
     @ [ IMul (Reg RAX, Reg RDX) ]
@@ -1055,10 +1057,10 @@ and compile_prim2
   | And ->
     let false_label = sprintf "false#%d" tag in
     let done_label = sprintf "done#%d" tag in
-    compile_imm e1 funnname env
+    compile_imm e1 funname env
     @ check_is_bool err_LOGIC_NOT_BOOL
     @ [ ISar (Reg RAX, Const 63L); ITest (Reg RAX, Const 0x1L); IJz (Label false_label) ]
-    @ compile_imm e2 funnname env
+    @ compile_imm e2 funname env
     @ check_is_bool err_LOGIC_NOT_BOOL
     @ [ ISar (Reg RAX, Const 63L)
       ; ITest (Reg RAX, Const 0x1L)
@@ -1353,7 +1355,7 @@ and compile_cexpr (e : tag cexpr) (funname : string) (env : naive_stack_env) (nu
       @ (List.rev args
         |> List.map (fun arg -> compile_imm arg funname env @ [ IPush (Reg RAX) ])
         |> List.flatten)
-      @ compile_imm funv env
+      @ compile_imm funv funname env
       @ [ ILineComment "push RAX onto stack" ]
       @ [ IPush (Reg RAX) ]
       (* @ [ IAdd (Reg RAX, Const 3L) ] *)
@@ -1361,7 +1363,7 @@ and compile_cexpr (e : tag cexpr) (funname : string) (env : naive_stack_env) (nu
       @ [ ICall (RegOffset (3, RAX)) ]
       @ [ IAdd (Reg RSP, Const (Int64.of_int ((List.length args + 1) * 8))) ])
 
-and compile_imm (e : 'a immexpr) (funname : string) (env : naive_stack_env) =
+and compile_imm (e : tag immexpr) (funname : string) (env : naive_stack_env) : instruction list =
   match e with
   | ImmNum (n, _) -> [ IMov (Reg RAX, Const (Int64.shift_left n 1)) ]
   | ImmBool (true, _) -> [ IMov (Reg RAX, const_true) ]

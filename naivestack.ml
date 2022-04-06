@@ -159,7 +159,7 @@ and allocate_cexpr
 let naive_stack_allocation (prog : tag aprogram) : tag aprogram * arg name_envt name_envt =
   match prog with
   | AProgram (expr, tag) ->
-    let exp_envt = allocate_aexpr expr "our_code_starts_here" 1 [] in
+    let exp_envt = allocate_aexpr expr "?our_code_starts_here" 1 [] in
     AProgram (expr, tag), exp_envt
 ;;
 
