@@ -7,6 +7,7 @@ open Naivestack
 open Freevars
 open Errors
 open ExtLib
+open Wrapnatives
 module StringSet = Set.Make (String)
 
 type 'a name_envt = (string * 'a) list
@@ -58,16 +59,16 @@ let initial_fun_env = prim_bindings @ native_fun_bindings
 (* You may find some of these helpers useful *)
 let error_code_to_str (code : int64) : string =
   if code = err_ARITH_NOT_NUM
-  then "err_arith_not_num"
+  then "?err_arith_not_num"
   else if code = err_COMP_NOT_NUM
-  then "err_comp_not_num"
+  then "?err_comp_not_num"
   else if code = err_LOGIC_NOT_BOOL
-  then "err_logic_not_bool"
+  then "?err_logic_not_bool"
   else if code = err_IF_NOT_BOOL
-  then "err_if_not_bool"
+  then "?err_if_not_bool"
   else if code = err_OVERFLOW
-  then "err_overflow"
-  else "err_unexpected"
+  then "?err_overflow"
+  else "?err_unexpected"
 ;;
 
 let callee_end_function = [ IMov (Reg RSP, Reg RBP); IPop (Reg RBP); IRet ]
@@ -108,7 +109,6 @@ let is_bool_instructions (tag : tag) =
   ]
 ;;
 
-
 let funv_to_op (funv : 'a immexpr) : prim1 =
   match funv with
   | ImmId ("add1", _) -> Add1
@@ -134,7 +134,6 @@ let is_tuple_instructions (tag : tag) =
   ]
 ;;
 
-
 let function_prelude (stack_depth : int) =
   [ IPush (Reg RBP) ]
   @ [ IMov (Reg RBP, Reg RSP) ]
@@ -157,7 +156,7 @@ let generate_error_instructions (error_codes : int64 list) : instruction list =
       : instruction list
     =
     let instructions =
-      [ IMov (Reg RDI, Const error_code); ICall (Label "error") ] @ callee_end_function
+      [ IMov (Reg RDI, Const error_code); ICall (Label "?error") ] @ callee_end_function
     in
     (ILabel (error_code_to_str error_code) :: instructions) @ labels
   in
@@ -165,7 +164,7 @@ let generate_error_instructions (error_codes : int64 list) : instruction list =
 ;;
 
 let print_instructions =
-  let instructions = [ IMov (Reg RDI, Reg RAX); ICall (Label "print") ] in
+  let instructions = [ IMov (Reg RDI, Reg RAX); ICall (Label "?print") ] in
   instructions
 ;;
 
@@ -945,12 +944,33 @@ and reserve size tag =
    assume should take up the first few stack slots.  See the compiliation of Programs
    below for one way to use this ability... *)
 
-and compile_fun (funname: string) (args : string list) (expr : 'a aexpr) (stack_env : naive_stack_env) : (instruction list * instruction list * instruction list) = 
-  let closure = CLambda(args, expr, 0) in 
+and compile_fun
+    (funname : string)
+    (args : string list)
+    (expr : 'a aexpr)
+    (env : naive_stack_env)
+    : instruction list * instruction list * instruction list
+  =
+  let closure = CLambda (args, expr, 0) in
   (* what do we put for the prologe and epiloge??*)
-  [], compile_cexpr closure funname stack_env (List.length args) false, []
+  let inner_env =
+    match List.find_map (fun (n, e) -> if n = funname then Some e else None) env with
+    | None ->
+      raise (InternalCompilerError (sprintf "no env for: %s \n %s" funname (dump env)))
+    | Some e -> e
+  in
+  let prelude = function_prelude (deepest_stack expr inner_env) in
+  ( prelude
+  , compile_cexpr closure funname env (List.length args) false
+    @ [ ICall (Label "temp_closure_0") ]
+  , function_postlude )
 
-and compile_aexpr (e : tag aexpr) (funname : string) (env : naive_stack_env) (num_args : int) (is_tail : bool)
+and compile_aexpr
+    (e : tag aexpr)
+    (funname : string)
+    (env : naive_stack_env)
+    (num_args : int)
+    (is_tail : bool)
     : instruction list
   =
   match e with
@@ -962,43 +982,69 @@ and compile_aexpr (e : tag aexpr) (funname : string) (env : naive_stack_env) (nu
   | ALetRec (bindings, body, tag) ->
     (List.map
        (fun (name, value) ->
-        let new_env : naive_stack_env = add_to_fun_env funname name (RegOffset (16, RBP)) env in
+         let new_env : naive_stack_env =
+           add_to_fun_env funname name (RegOffset (16, RBP)) env
+         in
          compile_cexpr value funname new_env num_args is_tail
          @ [ IMov (lookup funname name env, Reg RAX) ])
        bindings
     |> List.flatten)
     @ compile_aexpr body funname env num_args is_tail
   | ASeq (first, rest, tag) ->
-    compile_cexpr first funname env num_args is_tail @ compile_aexpr rest funname env num_args is_tail
+    compile_cexpr first funname env num_args is_tail
+    @ compile_aexpr rest funname env num_args is_tail
 
 and lookup (funname : string) (name : string) (env : naive_stack_env) =
-  match List.find_opt (fun ((f, _)) -> funname = f) env with
-  | Some (_, name_env) -> 
+  match List.find_opt (fun (f, _) -> funname = f) env with
+  | Some (_, name_env) ->
     (match List.find_opt (fun (n, _) -> name = n) name_env with
     | Some (_, arg) -> arg
-    | None -> raise (InternalCompilerError (sprintf "failed to lookup name %s " name)))
-  | None -> raise (InternalCompilerError (sprintf "failed to lookup function %s" funname))
+    | None ->
+      if funname = "closure#0"
+      then (
+        printf
+          "can't look up name: %s in func: %s in env: \n %s \n\n"
+          name
+          funname
+          (dump env);
+        raise (InternalCompilerError (sprintf "failed to lookup name %s " name)))
+      else lookup "closure#0" name env)
+  | None ->
+    printf "can't look up name %s fun: %s in env: \n %s \n\n" name funname (dump env);
+    (* lookup "closure#0" name env *)
+    raise (InternalCompilerError (sprintf "failed to lookup function %s" funname))
 
-and compile_native_app (fun_id : tag immexpr) (funname : string) (args : tag immexpr list) (env : arg name_envt name_envt)
+and compile_native_app
+    (fun_id : tag immexpr)
+    (funname : string)
+    (args : tag immexpr list)
+    (env : arg name_envt name_envt)
   =
   match fun_id with
   | ImmId (name, _) ->
     let arg_instrustions =
       List.mapi
         (fun index arg ->
-        (* TODO NOT SURE WHAT TO DO HERE*)
+          (* TODO NOT SURE WHAT TO DO HERE*)
           compile_imm arg name env
-          @ [ IMov (Reg RAX, Reg (List.nth first_six_args_registers index)) ])
+          @ [ IMov (Reg (List.nth first_six_args_registers index), Reg RAX) ])
         args
       |> List.flatten
     in
     arg_instrustions @ [ ICall (Label name) ]
   | _ -> raise (InternalCompilerError "invalid attempt to compile a native function")
 
-and compile_prim1 (p1 : prim1) (e : tag immexpr) (funname : string) (env : arg name_envt name_envt) (tag : tag) =
+and compile_prim1
+    (p1 : prim1)
+    (e : tag immexpr)
+    (funname : string)
+    (env : arg name_envt name_envt)
+    (tag : tag)
+  =
   match p1 with
   | IsBool -> compile_imm e funname env @ is_bool_instructions tag
-  | IsNum -> compile_imm e funname env @ [ IShl (Reg RAX, Const 63L); IXor (Reg RAX, const_true) ]
+  | IsNum ->
+    compile_imm e funname env @ [ IShl (Reg RAX, Const 63L); IXor (Reg RAX, const_true) ]
   | Not ->
     compile_imm e funname env
     @ check_is_bool err_LOGIC_NOT_BOOL
@@ -1143,9 +1189,14 @@ and compile_prim2
     @ [ IMov (Reg RDI, Reg RAX) ]
     @ compile_imm e2 funname env
     @ [ IMov (Reg RSI, Reg RAX) ]
-    @ [ ICall (Label "equal") ]
+    @ [ ICall (Label "?equal") ]
 
-and compile_cexpr (e : tag cexpr) (funname : string) (env : naive_stack_env) (num_args : int) (is_tail : bool)
+and compile_cexpr
+    (e : tag cexpr)
+    (funname : string)
+    (env : naive_stack_env)
+    (num_args : int)
+    (is_tail : bool)
     : instruction list
   =
   match e with
@@ -1172,7 +1223,8 @@ and compile_cexpr (e : tag cexpr) (funname : string) (env : naive_stack_env) (nu
     [ IMov (Reg RDI, Reg R15) ]
     @
     let len = List.length values in
-    [ IMov (Reg RAX, Sized (QWORD_PTR, Const (Int64.of_int len)))
+    [ IMov (Reg RAX, Sized (QWORD_PTR, Const (Int64.of_int (2 * len))))
+      (* [ IMov (Reg RAX, Sized (QWORD_PTR, Const 4L)) *)
     ; IMov (RegOffset (0, R15), Reg RAX)
     ; IAdd (Reg R15, Const 8L)
     ]
@@ -1231,7 +1283,7 @@ and compile_cexpr (e : tag cexpr) (funname : string) (env : naive_stack_env) (nu
     @ [ ILabel nil_label ]
     @ [ IMov (Reg RSI, Reg RAX) ]
     @ [ IMov (Reg RDI, Const err_NIL_DEREF) ]
-    @ [ ICall (Label "error") ]
+    @ [ ICall (Label "?error") ]
     @ [ ILabel test_high_label ]
     @ [ ISub (Reg RAX, Sized (QWORD_PTR, Const 1L)) ]
     @ [ ICmp (Reg R11, RegOffset (0, RAX))
@@ -1240,7 +1292,7 @@ and compile_cexpr (e : tag cexpr) (funname : string) (env : naive_stack_env) (nu
       ; ILabel high_label
       ; IMov (Reg RSI, RegOffset (0, RAX))
       ; IMov (Reg RDI, Const err_GET_HIGH_INDEX)
-      ; ICall (Label "error")
+      ; ICall (Label "?error")
       ; ILabel test_low_label
       ; IMov (Reg RDX, Const 0L)
       ; ICmp (Reg R11, Reg RDX)
@@ -1249,7 +1301,7 @@ and compile_cexpr (e : tag cexpr) (funname : string) (env : naive_stack_env) (nu
       ; ILabel low_label
       ; IMov (Reg RSI, RegOffset (0, RAX))
       ; IMov (Reg RDI, Const err_GET_LOW_INDEX)
-      ; ICall (Label "error")
+      ; ICall (Label "?error")
       ; ILabel done_label
       ]
     @ (* check is tuple *)
@@ -1287,7 +1339,7 @@ and compile_cexpr (e : tag cexpr) (funname : string) (env : naive_stack_env) (nu
     (* body *)
     @ [ ILineComment "body start" ]
     @ [ ILineComment (sprintf "env : %s" (dump env)) ]
-    @ compile_aexpr body funname env num_args is_tail
+    @ compile_aexpr body (sprintf "closure#%d" tag) env num_args is_tail
     @ [ ILineComment "body end" ]
     (* / body *)
     (* body postamble *)
@@ -1339,7 +1391,7 @@ and compile_cexpr (e : tag cexpr) (funname : string) (env : naive_stack_env) (nu
       @ [ IJe (Label is_fun) ]
       @ [ IMov (Reg RSI, Reg RAX) ]
       @ [ IMov (Reg RDI, Const err_CALL_NOT_CLOSURE) ]
-      @ [ ICall (Label "error") ]
+      @ [ ICall (Label "?error") ]
       @ [ ILabel is_fun ]
       @ [ ILineComment "check arity" ]
       @ [ IMov (Reg RSI, Const (Int64.of_int (List.length args))) ]
@@ -1348,7 +1400,7 @@ and compile_cexpr (e : tag cexpr) (funname : string) (env : naive_stack_env) (nu
       @ [ ICmp (Reg RSI, Reg RDX) ]
       @ [ IJe (Label eq_arity) ]
       @ [ IMov (Reg RDI, Const err_CALL_ARITY_ERR) ]
-      @ [ ICall (Label "error") ]
+      @ [ ICall (Label "?error") ]
       (* push arguments onto stack *)
       @ [ ILabel eq_arity ]
       @ [ ILineComment "push args onto stack" ]
@@ -1363,14 +1415,15 @@ and compile_cexpr (e : tag cexpr) (funname : string) (env : naive_stack_env) (nu
       @ [ ICall (RegOffset (3, RAX)) ]
       @ [ IAdd (Reg RSP, Const (Int64.of_int ((List.length args + 1) * 8))) ])
 
-and compile_imm (e : tag immexpr) (funname : string) (env : naive_stack_env) : instruction list =
+and compile_imm (e : tag immexpr) (funname : string) (env : naive_stack_env)
+    : instruction list
+  =
   match e with
   | ImmNum (n, _) -> [ IMov (Reg RAX, Const (Int64.shift_left n 1)) ]
   | ImmBool (true, _) -> [ IMov (Reg RAX, const_true) ]
   | ImmBool (false, _) -> [ IMov (Reg RAX, const_false) ]
-  | ImmId (x, _) -> [ IMov (Reg RAX, lookup funname x env)  ]
+  | ImmId (x, _) -> [ IMov (Reg RAX, lookup funname x env) ]
   | ImmNil _ -> [ IMov (Reg RAX, const_nil) ]
-
 
 and args_help args regs =
   match args, regs with
@@ -1524,7 +1577,7 @@ let compile_prog (anfed, (env : arg name_envt name_envt)) =
   | AProgram (body, _) ->
     (* $heap and $size are mock parameter names, just so that compile_fun knows our_code_starts_here takes in 2 parameters *)
     let prologue, comp_main, epilogue =
-      compile_fun "?our_code_starts_here" [ "$heap"; "$size" ] body env
+      compile_fun "closure#0" [ "$heap"; "$size" ] body env
     in
     let heap_start =
       [ ILineComment "heap start"
@@ -1546,7 +1599,9 @@ let compile_prog (anfed, (env : arg name_envt name_envt)) =
       @ native_call (Label "?set_stack_bottom") [ Reg RBP ]
       @ [ IMov (Reg RDI, Reg R12) ]
     in
-    let main = prologue @ heap_start @ comp_main @ epilogue in
+    let main =
+      prologue @ heap_start @ comp_main @ epilogue @ [ ICall (Label "temp_closure_0") ]
+    in
     sprintf "%s%s%s%s\n" prelude (to_asm set_stack_bottom) (to_asm main) suffix
 ;;
 
@@ -1555,7 +1610,10 @@ let run_if should_run f = if should_run then f else no_op_phase
 let compile_to_string ?(no_builtins = false) (prog : sourcespan program pipeline)
     : string pipeline
   =
-  prog
+  let init_prog =
+    if no_builtins then prog else prog |> add_phase wrapped_natives wrap_natives
+  in
+  init_prog
   |> add_err_phase well_formed is_well_formed
   |> run_if (not no_builtins) (add_phase add_natives add_native_lambdas)
   |> add_phase desugared desugar
@@ -1565,4 +1623,3 @@ let compile_to_string ?(no_builtins = false) (prog : sourcespan program pipeline
   |> add_phase locate_bindings naive_stack_allocation
   |> add_phase result compile_prog
 ;;
-

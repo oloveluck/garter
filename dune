@@ -1,21 +1,39 @@
 (library
-  (name garter_impl)
-  (modules assembly compile naivestack freevars find errors exprs phases pretty runner lexer parser)
-  (libraries ounit2 extlib unix)
-  (wrapped false))
+ (name garter_impl)
+ (modules
+  assembly
+  compile
+  wrapnatives
+  naivestack
+  freevars
+  find
+  errors
+  exprs
+  phases
+  pretty
+  runner
+  lexer
+  parser)
+ (libraries ounit2 extlib unix)
+ (wrapped false))
 
-(ocamllex (modules lexer))
-(menhir (modules parser))
+(ocamllex
+ (modules lexer))
+
+(menhir
+ (modules parser))
 
 (executable
-  (name main)
-  (modules main)
-  (libraries garter_impl))
+ (name main)
+ (modules main)
+ (libraries garter_impl))
 
 (test
-  (name test)
-  (modules test)
-  (libraries garter_impl))
+ (name test)
+ (modules test)
+ (libraries garter_impl))
 
-(env (dev (flags (:standard -warn-error -A))))
-
+(env
+ (dev
+  (flags
+   (:standard -warn-error -A))))

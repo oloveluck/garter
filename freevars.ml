@@ -82,7 +82,7 @@ let free_vars (e : 'a aexpr) (env : string list) : string list =
            (List.map (fun a -> helpI a env) args)
            StringSet.empty)
     | CLambda (args, body, _) ->
-      printf "Getting Frees For Lambda with env: %s" (dump env);
+      (* printf "Getting Frees For Lambda with env: %s" (dump env); *)
       let args_env = StringSet.of_list args in
       helpA body args_env
     | CImmExpr i -> helpI i env
