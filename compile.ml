@@ -1219,15 +1219,16 @@ and compile_cexpr
   | CPrim1 (op, e, tag) -> compile_prim1 op e funname env tag
   | CPrim2 (op, e1, e2, tag) -> compile_prim2 op e1 e2 funname env tag
   | CImmExpr immexpr -> compile_imm immexpr funname env
-  | CTuple (values, _) ->
+  | CTuple (values, tag) ->
     [ IMov (Reg RDI, Reg R15) ]
     @
     let len = List.length values in
-    [ IMov (Reg RAX, Sized (QWORD_PTR, Const (Int64.of_int (2 * len))))
-      (* [ IMov (Reg RAX, Sized (QWORD_PTR, Const 4L)) *)
-    ; IMov (RegOffset (0, R15), Reg RAX)
-    ; IAdd (Reg R15, Const 8L)
-    ]
+    reserve (len + 1) tag
+    @ [ IMov (Reg RAX, Sized (QWORD_PTR, Const (Int64.of_int (2 * len))))
+        (* [ IMov (Reg RAX, Sized (QWORD_PTR, Const 4L)) *)
+      ; IMov (RegOffset (0, R15), Reg RAX)
+      ; IAdd (Reg R15, Const 8L)
+      ]
     @ (List.map
          (fun value ->
            compile_imm value funname env
@@ -1313,7 +1314,8 @@ and compile_cexpr
     let num_frees = List.length frees in
     let heap_offset = 24 + (num_frees * 8) + if num_frees mod 2 = 0 then 8 else 0 in
     (* let env = allocate_cexpr e 1 in *)
-    [ IJmp (Label after) ]
+    reserve (3 + num_frees) tag
+    @ [ IJmp (Label after) ]
     @ [ ILabel name ]
     (* body preamble *)
     @ [ IPush (Reg RBP) ]
