@@ -6,4 +6,4 @@ def length(l):
   else:
     1 + length(l[1])
 
-length(link(1, false))
+length((1, (1, false)))

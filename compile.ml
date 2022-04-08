@@ -969,7 +969,7 @@ and compile_fun
   printf "\CURRENT FUNNAME: %s\n" funname; *)
   let prelude = function_prelude (deepest_stack expr env "closure#0") in
   ( prelude
-  , compile_cexpr closure funname env (List.length args) false
+  , compile_cexpr closure funname env (List.length args) "" false
     @ [ ICall (Label "temp_closure_0") ]
   , function_postlude )
 
@@ -983,20 +983,20 @@ and compile_aexpr
   =
   match e with
   | ALet (name, value, body, tag) ->
-    compile_cexpr value funname env num_args is_tail
+    compile_cexpr value funname env num_args "" is_tail
     @ [ IMov (lookup funname name env, Reg RAX) ]
     @ compile_aexpr body funname env num_args is_tail
-  | ACExpr c -> compile_cexpr c funname env num_args is_tail
+  | ACExpr c -> compile_cexpr c funname env num_args "" is_tail
   | ALetRec (bindings, body, tag) ->
     (List.map
        (fun (name, value) ->
-         compile_cexpr value funname env num_args is_tail
+         compile_cexpr value funname env num_args name is_tail
          @ [ IMov (lookup funname name env, Reg RAX) ])
        bindings
     |> List.flatten)
     @ compile_aexpr body funname env num_args is_tail
   | ASeq (first, rest, tag) ->
-    compile_cexpr first funname env num_args is_tail
+    compile_cexpr first funname env num_args "" is_tail
     @ compile_aexpr rest funname env num_args is_tail
 
 and lookup (funname : string) (name : string) (env : naive_stack_env) =
@@ -1201,6 +1201,7 @@ and compile_cexpr
     (funname : string)
     (env : naive_stack_env)
     (num_args : int)
+    (recname : string)
     (is_tail : bool)
     : instruction list
   =
@@ -1315,8 +1316,9 @@ and compile_cexpr
   | CLambda (binds, body, tag) ->
     let name = sprintf "temp_closure_%d" tag in
     let after = sprintf "after_%d" tag in
-    let frees = free_vars body binds in
+    let frees = free_vars body (binds @ [ recname ]) in
     let num_frees = List.length frees in
+    let num_bindings = deepest_stack body env (sprintf "closure#%d" tag) in
     let heap_offset = 24 + (num_frees * 8) + if num_frees mod 2 = 0 then 8 else 0 in
     (* let env = allocate_cexpr e 1 in *)
     reserve (3 + num_frees) tag
@@ -1327,7 +1329,7 @@ and compile_cexpr
     @ [ IPush (Reg RBP) ]
     @ [ IMov (Reg RBP, Reg RSP) ]
     (* allocate space for free vars *)
-    @ [ ISub (Reg RSP, Const (Int64.of_int (8 * num_frees))) ]
+    @ [ ISub (Reg RSP, Const (Int64.of_int ((8 * num_bindings) + (8 * num_frees)))) ]
     (* move self arg into R11 *)
     @ [ IMov (Reg R11, RegOffset (16, RBP)) ]
     (* untag the self argument *)

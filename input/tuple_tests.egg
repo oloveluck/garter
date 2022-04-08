@@ -1,0 +1,4 @@
+def link(a,b):
+  (a,b)
+
+link(1, link(2, link(3, nil)))

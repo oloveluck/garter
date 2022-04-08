@@ -235,6 +235,7 @@ let reg_tests =
       "The identifier func, used at <calling_nonfunction, 1:0-1:4>, is not in scope" *)
   ; t "l3" "let z = 1 in let add = (lambda (x, y): x + y + z) in\nadd(5, 6)" "" "12"
   ; t "fact" "def fact(n): if n < 2: 1 else: n * fact(n - 1)\n\nfact(5)" "" "120"
+  ; t "fib" "def fib(n): if n < 2: n else: fib(n - 1) + fib(n - 2) \n fib(5)" "" "5"
   ; t "print1" "print(2) + print(3)" "" "2\n3\n5"
   ; t "print2" "let x = (lambda(r): print(r)) in x(5)" "" "5\n5"
   ; t
@@ -242,6 +243,7 @@ let reg_tests =
       "let x = (lambda(r): print(r)) in\n let y = (lambda (s): x(s))\n in y(5)"
       ""
       "5\n5"
+  ; t "close" "let x = 5 in let y = (lambda(c): x + 1) in y(5)" "" "6"
   ; t
       "pass1"
       "let app_to_5 = (lambda(x): x(5)) in \n\
@@ -251,12 +253,19 @@ let reg_tests =
       "5\n5"
   ; tprog "list1.egg" "(1, (1, (1, nil)))"
   ; tprog "length.egg" "3"
-  ; tprog "rec_nil.egg" "(1, (2, (3, (1, (2, (3, nil))))))"
+    (* ; tprog "rec_nil.egg" "(1, (2, (3, (1, (2, (3, nil))))))"
   ; tprog "rec_env.egg" "1"
+  ; tprog "tuple_tests.egg" "1" *)
   ]
 ;;
 
-(* let suite = "unit_tests" >::: pair_tests @ oom @ gc *)
+let test_tests =
+  [ t "tlam" "let f = (lambda: (1, 2)) in\n\nf()\n" "" "(1, 2)"
+  ; t "tlam2" "let rec f = (lambda: (1, 2)) in\n\nf()\n" "" "(1, 2)"
+  ]
+;;
 
-let suite = "unit_tests" >::: reg_tests
+let suite = "unit_tests" >::: pair_tests @ oom @ gc @ test_tests @ reg_tests
+
+(* let suite = "unit_tests" >::: reg_tests *)
 let () = run_test_tt_main ("all_tests" >::: [ suite; input_file_test_suite () ])

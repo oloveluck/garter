@@ -2,10 +2,10 @@ def link(a,b):
   (a,b)
 
 def append(l1, l2):
-  if l1 == nil: 
+  if l1 == false: 
     l2
   else:
     (l1[0], append(l1[1], l2))
 
-let l = link(1, link(2, link(3, nil))) in
+let l = link(1, link(2, link(3, false))) in
   append(l, l)
