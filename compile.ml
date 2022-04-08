@@ -960,10 +960,7 @@ and compile_fun
     | Some e -> e
   in
   let prelude = function_prelude (deepest_stack expr inner_env) in
-  ( prelude
-  , compile_cexpr closure funname env (List.length args) false
-    @ [ ICall (Label "temp_closure_0") ]
-  , function_postlude )
+  prelude, compile_cexpr closure funname env (List.length args) false, function_postlude
 
 and compile_aexpr
     (e : tag aexpr)
@@ -1219,15 +1216,16 @@ and compile_cexpr
   | CPrim1 (op, e, tag) -> compile_prim1 op e funname env tag
   | CPrim2 (op, e1, e2, tag) -> compile_prim2 op e1 e2 funname env tag
   | CImmExpr immexpr -> compile_imm immexpr funname env
-  | CTuple (values, _) ->
+  | CTuple (values, tag) ->
     [ IMov (Reg RDI, Reg R15) ]
     @
     let len = List.length values in
-    [ IMov (Reg RAX, Sized (QWORD_PTR, Const (Int64.of_int (2 * len))))
-      (* [ IMov (Reg RAX, Sized (QWORD_PTR, Const 4L)) *)
-    ; IMov (RegOffset (0, R15), Reg RAX)
-    ; IAdd (Reg R15, Const 8L)
-    ]
+    reserve len tag
+    @ [ IMov (Reg RAX, Sized (QWORD_PTR, Const (Int64.of_int (2 * len))))
+        (* [ IMov (Reg RAX, Sized (QWORD_PTR, Const 4L)) *)
+      ; IMov (RegOffset (0, R15), Reg RAX)
+      ; IAdd (Reg R15, Const 8L)
+      ]
     @ (List.map
          (fun value ->
            compile_imm value funname env
@@ -1577,7 +1575,7 @@ let compile_prog (anfed, (env : arg name_envt name_envt)) =
   | AProgram (body, _) ->
     (* $heap and $size are mock parameter names, just so that compile_fun knows our_code_starts_here takes in 2 parameters *)
     let prologue, comp_main, epilogue =
-      compile_fun "closure#0" [ "$heap"; "$size" ] body env
+      compile_fun "?our_code_starts_here" [ "$heap"; "$size" ] body env
     in
     let heap_start =
       [ ILineComment "heap start"
@@ -1600,7 +1598,11 @@ let compile_prog (anfed, (env : arg name_envt name_envt)) =
       @ [ IMov (Reg RDI, Reg R12) ]
     in
     let main =
-      prologue @ heap_start @ comp_main @ epilogue @ [ ICall (Label "temp_closure_0") ]
+      prologue
+      @ heap_start
+      @ comp_main
+      @ epilogue
+      @ [ ICall (Label "?our_code_starts_here") ]
     in
     sprintf "%s%s%s%s\n" prelude (to_asm set_stack_bottom) (to_asm main) suffix
 ;;
