@@ -171,7 +171,7 @@ and allocate_cexpr
   | CLambda (args, body, tag) ->
     let new_name = sprintf "closure#%d" tag in
     let args_env = lambda_args_to_env args new_name 0 env in
-    let body_env = allocate_aexpr body new_name si args_env in
+    let body_env = allocate_aexpr body new_name 1 args_env in
     body_env
   | CIf (_, t, e, _) ->
     let t_env = allocate_aexpr t funname si env in

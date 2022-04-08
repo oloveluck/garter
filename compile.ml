@@ -1320,6 +1320,7 @@ and compile_cexpr
     let heap_offset = 24 + (num_frees * 8) + if num_frees mod 2 = 0 then 8 else 0 in
     (* let env = allocate_cexpr e 1 in *)
     reserve (3 + num_frees) tag
+    @ [ ILineComment (dump env) ]
     @ [ IJmp (Label after) ]
     @ [ ILabel name ]
     (* body preamble *)
