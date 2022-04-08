@@ -1,0 +1,3 @@
+
+let incr = (lambda(x): x + 1) in
+incr(5)

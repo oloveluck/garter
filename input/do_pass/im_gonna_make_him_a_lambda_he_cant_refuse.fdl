@@ -1,0 +1,19 @@
+
+def list5():
+    (1, (2, (3, (4, (5, nil)))))
+def len(li):
+    if li == nil: 0 else: 1 + len(li[1])
+def map(f, li):
+    if li == nil: nil else: (f(li[0]), map(f, li[1]))
+def inplace_map(f, li):
+    if li == nil: nil else: li[0]:=f(li[0]); inplace_map(f, li[1])
+def make_list():
+    let i = input() in
+    if i == 0: nil else: (i, make_list())
+    
+let (va1, va2) = (true, false) in
+let rec applier = (lambda (lam): (lambda (x): lam(x))),
+        thirst = (lambda (com, ap): com(applier(ap), applier(ap))),
+        combiner = (lambda (f, g): f(va1) && g(va2)) in
+        
+        thirst(combiner, (lambda (b): b && true))

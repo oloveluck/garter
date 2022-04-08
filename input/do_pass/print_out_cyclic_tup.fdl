@@ -1,0 +1,5 @@
+
+let x = (4, nil) in
+let _ = x[1]:=x in
+print((x, x))
+    

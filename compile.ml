@@ -168,6 +168,17 @@ let print_instructions =
   instructions
 ;;
 
+let print_stack_instructions =
+  let instructions =
+    [ IMov (Reg RDI, Reg RAX)
+    ; IMov (Reg RSI, Reg RSP)
+    ; IMov (Reg RDX, Reg RBP)
+    ; ICall (Label "?print_stack")
+    ]
+  in
+  instructions
+;;
+
 let rec find ls x =
   match ls with
   | [] -> raise (InternalCompilerError (sprintf "Name %s not found" x))
@@ -953,13 +964,10 @@ and compile_fun
   =
   let closure = CLambda (args, expr, 0) in
   (* what do we put for the prologe and epiloge??*)
-  let inner_env =
-    match List.find_map (fun (n, e) -> if n = funname then Some e else None) env with
-    | None ->
-      raise (InternalCompilerError (sprintf "no env for: %s \n %s" funname (dump env)))
-    | Some e -> e
-  in
-  let prelude = function_prelude (deepest_stack expr inner_env) in
+  (* printf "\nOUTER ENV: %s\n" (dump env);
+  printf "\INNER ENV: %s\n" (dump inner_env);
+  printf "\CURRENT FUNNAME: %s\n" funname; *)
+  let prelude = function_prelude (deepest_stack expr env "closure#0") in
   ( prelude
   , compile_cexpr closure funname env (List.length args) false
     @ [ ICall (Label "temp_closure_0") ]
@@ -982,10 +990,7 @@ and compile_aexpr
   | ALetRec (bindings, body, tag) ->
     (List.map
        (fun (name, value) ->
-         let new_env : naive_stack_env =
-           add_to_fun_env funname name (RegOffset (16, RBP)) env
-         in
-         compile_cexpr value funname new_env num_args is_tail
+         compile_cexpr value funname env num_args is_tail
          @ [ IMov (lookup funname name env, Reg RAX) ])
        bindings
     |> List.flatten)
@@ -1062,7 +1067,7 @@ and compile_prim1
     @ [ IJo (error_code_to_label err_OVERFLOW) ]
   | Print -> compile_imm e funname env @ print_instructions
   | IsTuple -> is_tuple_instructions tag
-  | PrintStack -> raise (NotYetImplemented "Fill in here")
+  | PrintStack -> print_stack_instructions
 
 and compile_prim2
     (p2 : prim2)

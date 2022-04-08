@@ -10,7 +10,10 @@ extern uint64_t CLOSURE_TAG_MASK;
 extern uint64_t TUPLE_TAG_MASK;
 extern uint64_t CLOSURE_TAG;
 extern uint64_t TUPLE_TAG;
+extern uint64_t NUM_TAG;
 extern uint64_t NIL;
+extern uint64_t BOOL_TRUE;
+extern uint64_t BOOL_FALSE;
 extern uint64_t tupleCounter;
 extern uint64_t *STACK_BOTTOM;
 extern uint64_t *FROM_S;
@@ -31,6 +34,21 @@ void naive_print_heap(uint64_t *heap, uint64_t *heap_end)
 
 void smarter_print_heap(uint64_t *from_start, uint64_t *from_end, uint64_t *to_start, uint64_t *to_end)
 {
+  printf("from heap: ");
+  for (uint64_t i = 0; i < (uint64_t)(from_end - from_start); i += 1)
+  {
+    printf("  %ld/%p: %p -> ", i, (from_start + i), (uint64_t *)(*(from_start + i)));
+    printHelp(stdout, *(from_start + i));
+    printf("\n");
+  }
+  printf("to heap: ");
+  for (uint64_t i = 0; i < (uint64_t)(to_end - to_start); i += 1)
+  {
+    printf("  %ld/%p: %p -> ", i, (to_start + i), (uint64_t *)(*(to_start + i)));
+    printHelp(stdout, *(to_start + i));
+    printf("\n");
+  }
+
   // Print out the entire heap (both semispaces), and
   // try to print values readably when possible
 }
@@ -54,8 +72,53 @@ void smarter_print_heap(uint64_t *from_start, uint64_t *from_end, uint64_t *to_s
  */
 uint64_t *copy_if_needed(uint64_t *garter_val_addr, uint64_t *heap_top)
 {
-  // no-op for now
-  return heap_top;
+  "break [gc.c]:[75]";
+  SNAKEVAL val = *garter_val_addr;
+  if ((val == NIL) || ((val & NUM_TAG_MASK) == NUM_TAG) || (val == BOOL_TRUE) || (val == BOOL_FALSE))
+  {
+    return heap_top;
+  }
+  if ((val & TUPLE_TAG_MASK) == 3)
+  {
+    fprintf(val, "forwarding to ");
+    fflush(val);
+    fprintf(val, "%p", (int *)(val - 3));
+    fflush(val);
+  }
+  else if ((val & CLOSURE_TAG_MASK) == CLOSURE_TAG)
+  {
+  }
+  else if ((val & TUPLE_TAG_MASK) == 3)
+  {
+    *garter_val_addr = val - 2;
+  }
+
+  else if ((val & TUPLE_TAG_MASK) == TUPLE_TAG)
+  {
+    uint64_t *heap_thing_addr = (uint64_t *)(val - TUPLE_TAG);
+    *garter_val_addr = heap_top;
+    uint64_t len = heap_thing_addr[0];
+    len /= 2; // length is encoded
+    if (len % 2 != 0)
+    {
+      len += 1;
+    }
+    uint64_t *heap_bottom = heap_top;
+    heap_top[0] = len * 2;
+    for (uint64_t i = 1; i <= len; i++)
+    {
+      heap_top[i] = heap_thing_addr[i];
+      // uint64_t *ht = addr + len;
+      // uint64_t *new_ht = copy_if_needed(heap_top[i], ht);
+    }
+    *heap_thing_addr = (uint64_t *)((uint64_t)(heap_top) + 3); // make fwd pointer
+    uint64_t new_heap_top = heap_top + len;
+    for (uint64_t i = 1; i <= len; i++)
+    {
+      new_heap_top = copy_if_needed(heap_bottom[i], new_heap_top);
+    }
+    return new_heap_top;
+  }
 }
 
 /*

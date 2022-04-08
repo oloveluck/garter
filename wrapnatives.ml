@@ -1,7 +1,6 @@
 open Exprs
 open Errors
 open Phases
-open Find
 open Printf
 open ExtLib
 

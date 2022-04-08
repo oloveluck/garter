@@ -1,0 +1,5 @@
+
+def foo(n, x):
+    if x: x else: n
+
+foo(5, true)

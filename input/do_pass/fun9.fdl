@@ -1,0 +1,8 @@
+
+def letter(x):
+    let y=x in
+        let z=y in
+            let x=z in
+                x+y+z
+
+letter(1)

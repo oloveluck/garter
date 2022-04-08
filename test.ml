@@ -47,6 +47,14 @@ let tanf name program input expected =
   name >:: fun _ -> assert_equal expected (anf (tag program)) ~printer:string_of_aprogram
 ;;
 
+let tprog (filename : string) (expected : string) =
+  filename >:: test_run_input filename expected
+;;
+
+let tprog2 (filename : string) (expected : string) =
+  filename >:: test_run_input filename (string_of_file expected)
+;;
+
 let tparse name program expected =
   name
   >:: fun _ ->
@@ -127,6 +135,7 @@ let gc =
       \       end"
       ""
       "(1, 2)"
+  ; tgc "gc_nothing" (80 + builtins_size) "let x = 3 in x" "" "3"
   ]
 ;;
 
@@ -240,9 +249,14 @@ let reg_tests =
        app_to_5(print_a)\n"
       ""
       "5\n5"
+  ; tprog "list1.egg" "(1, (1, (1, nil)))"
+  ; tprog "length.egg" "3"
+  ; tprog "rec_nil.egg" "(1, (2, (3, (1, (2, (3, nil))))))"
+  ; tprog "rec_env.egg" "1"
   ]
 ;;
 
-(* let suite = "unit_tests" >::: pair_tests @ oom @ gc @ input @ reg_tests *)
+(* let suite = "unit_tests" >::: pair_tests @ oom @ gc *)
+
 let suite = "unit_tests" >::: reg_tests
 let () = run_test_tt_main ("all_tests" >::: [ suite; input_file_test_suite () ])

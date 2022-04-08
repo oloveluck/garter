@@ -1,0 +1,5 @@
+
+let rec baz = (lambda(foo): foo(1)) in 
+let rec foo = (lambda (x): x + 1), bar = (lambda(y): foo(1)) in
+
+baz(foo)

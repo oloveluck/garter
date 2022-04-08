@@ -5,10 +5,42 @@ open Assembly
 open Find
 open Freevars
 open Printf
+open ExtLib
+
+type naive_stack_env = arg name_envt name_envt
+
+let rec lookup (funname : string) (name : string) (env : naive_stack_env) =
+  match List.find_opt (fun (f, _) -> funname = f) env with
+  | Some (_, name_env) ->
+    (match List.find_opt (fun (n, _) -> name = n) name_env with
+    | Some (_, arg) -> arg
+    | None ->
+      if funname = "closure#0"
+      then (
+        printf
+          "can't look up name: %s in func: %s in env: \n %s \n\n"
+          name
+          funname
+          (dump env);
+        raise (InternalCompilerError (sprintf "failed to lookup name %s " name)))
+      else lookup "closure#0" name env)
+  | None ->
+    printf "can't look up name %s fun: %s in env: \n %s \n\n" name funname (dump env);
+    (* lookup "closure#0" name env *)
+    raise (InternalCompilerError (sprintf "failed to lookup function %s" funname))
+;;
+
+let rec lookup_env (funname : string) (env : naive_stack_env) =
+  match List.find_opt (fun (f, _) -> funname = f) env with
+  | Some (_, name_env) -> name_env
+  | None ->
+    (* lookup "closure#0" name env *)
+    raise (InternalCompilerError (sprintf "failed to lookup function %s" funname))
+;;
 
 (* Returns the stack-index (in words) of the deepest stack index used for any 
    of the variables in this expression *)
-let rec deepest_stack e env =
+let rec deepest_stack e (env : naive_stack_env) funname =
   let rec helpA e =
     match e with
     | ALet (name, bind, body, _) ->
@@ -26,11 +58,16 @@ let rec deepest_stack e env =
     | CTuple (vals, _) -> List.fold_left max 0 (List.map helpI vals)
     | CGetItem (t, _, _) -> helpI t
     | CSetItem (t, _, v, _) -> max (helpI t) (helpI v)
-    | CLambda (args, body, _) ->
+    | CLambda (args, body, tag) ->
+      let env_name = sprintf "closure#%d" tag in
+      let found_env = lookup_env env_name env in
       let new_env =
-        List.mapi (fun i a -> a, RegOffset (word_size * (i + 3), RBP)) args @ env
+        List.mapi (fun i a -> a, RegOffset (word_size * (i + 3), RBP)) args @ found_env
       in
-      deepest_stack body new_env
+      let new_outer_env =
+        List.map (fun (en, env) -> if en = env_name then en, new_env else en, env) env
+      in
+      deepest_stack body new_outer_env env_name
     | CImmExpr i -> helpI i
   and helpI i =
     match i with
@@ -39,7 +76,7 @@ let rec deepest_stack e env =
     | ImmBool _ -> 0
     | ImmId (name, _) -> name_to_offset name
   and name_to_offset name =
-    match find env name with
+    match lookup funname name env with
     | RegOffset (bytes, RBP) ->
       bytes / (-1 * word_size) (* negative because stack direction *)
     | _ -> 0
@@ -62,7 +99,11 @@ let rec add_to_fun_env
     else (envname, l) :: add_to_fun_env funname name arg rest
 ;;
 
-type naive_stack_env = arg name_envt name_envt
+let rec get_next_function (expr : tag cexpr) : string =
+  match expr with
+  | CLambda (_, _, tag) -> sprintf "closure#%d" tag
+  | _ -> ""
+;;
 
 let rec allocate_aexpr
     (expr : tag aexpr)
@@ -96,8 +137,12 @@ and rec_bindings_to_env
   =
   match bindings with
   | (name, value) :: rest ->
+    let closure_name = get_next_function value in
     let lhs_env = add_to_fun_env funname name (RegOffset (~-8 * si, RBP)) env in
-    let rhs_env = allocate_cexpr value funname si lhs_env in
+    let funname_in_closure_env =
+      add_to_fun_env closure_name name (RegOffset (16, RBP)) lhs_env
+    in
+    let rhs_env = allocate_cexpr value closure_name (si + 1) funname_in_closure_env in
     rec_bindings_to_env rest funname rhs_env (si + 1)
   | [] -> env
 

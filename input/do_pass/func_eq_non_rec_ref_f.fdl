@@ -1,0 +1,6 @@
+
+let foo = (lambda: 1 + 5),
+    bar = (lambda: 1 + 5) in
+    foo == bar
+
+    

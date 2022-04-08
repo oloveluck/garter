@@ -1,0 +1,9 @@
+
+def foo(a, b, acc):
+    if (a == 0) || (b == 0): acc else: bar(a, b, acc + 1)
+and def bar(a, b, acc):
+    bee(a + 1, b + 1, acc + 1)
+and def bee(a, b, acc):
+    foo(a - 2, b - 2, acc + 1)
+foo(10, 5, 0) + foo(9, 10, 0)
+    

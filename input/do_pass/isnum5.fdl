@@ -1,0 +1,1 @@
+isnum(if true: false else: 5)

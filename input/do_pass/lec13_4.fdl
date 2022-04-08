@@ -1,0 +1,6 @@
+
+let add = (lambda(x): (lambda(y): x + y)) in
+let applyToFive = (lambda(it): it(5)) in
+let incr = add(1) in
+let add5 = add(5) in
+(applyToFive(incr), applyToFive(add5))

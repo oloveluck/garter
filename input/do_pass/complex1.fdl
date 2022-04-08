@@ -1,0 +1,1 @@
+if isbool(5): (5 > true) else: print(5) + print(2)

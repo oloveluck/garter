@@ -1,0 +1,8 @@
+
+def fact(n): 
+    if n==0: 1 else: n * fact(n - 1)
+
+def fact_acc(n, acc):
+    if n==0: acc else: fact_acc(n - 1, acc * n)
+
+fact_acc(5, 1) == fact(5)

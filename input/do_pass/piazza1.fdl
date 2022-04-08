@@ -1,0 +1,7 @@
+
+let x = 5 in
+let y = 6 in
+let z = y in
+let f = (lambda: x + z) in
+let h = (lambda: z + y) in
+f()

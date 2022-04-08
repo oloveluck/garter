@@ -1,0 +1,9 @@
+
+let rec foldl = (lambda(f, base, l):
+    if (l == nil):
+        base
+    else:
+        foldl(f, f(l[0], base), l[1])) in
+
+let l = (1, (2, (3, (4, (5, nil))))) in
+foldl((lambda(x, y): x + y), 0, l)

@@ -1,0 +1,18 @@
+
+def list5():
+    (1, (2, (3, (4, (5, nil)))))
+def len(li):
+    if li == nil: 0 else: 1 + len(li[1])
+def map(f, li):
+    if li == nil: nil else: (f(li[0]), map(f, li[1]))
+def inplace_map(f, li):
+    if li == nil: nil else: li[0]:=f(li[0]); inplace_map(f, li[1])
+def make_list():
+    let i = input() in
+    if i == 0: nil else: (i, make_list())
+    
+let li = (1, (2, (3, (4, nil)))) in
+let li2 = li in
+inplace_map((lambda (x): 2 * x), li);
+li2 == li
+    

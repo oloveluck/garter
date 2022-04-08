@@ -1,0 +1,8 @@
+
+def applyToFive(it):
+  it(5)
+
+def incr(x):
+  x + 1
+
+applyToFive(incr)

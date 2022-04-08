@@ -1,0 +1,1 @@
+if !(false): (let y=isbool(5) in if y: 5 else: 6) else: 7

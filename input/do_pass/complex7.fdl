@@ -1,0 +1,1 @@
+if !(isbool(false)): true && false || true else: 5

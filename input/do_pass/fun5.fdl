@@ -1,0 +1,6 @@
+
+def f(y): y + 1
+
+def g(x): f(x) - 1
+
+let x=f(g(1)) in x

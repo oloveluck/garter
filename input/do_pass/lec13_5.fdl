@@ -1,0 +1,5 @@
+
+let five = 5 in
+let applyToFive = (lambda(it): it(five)) in
+let incr = (lambda(x): x + 1) in
+applyToFive(incr)

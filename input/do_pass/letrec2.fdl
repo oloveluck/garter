@@ -1,0 +1,4 @@
+
+let rec foo = (lambda (x): bar(x)), bar = (lambda(y): y + 2) in
+
+foo(1)

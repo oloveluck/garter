@@ -1,0 +1,10 @@
+
+let a=2, b=5 in
+let rec 
+    foo = (lambda (func1, func2, soul, judge): if judge: func1(soul) else: func2(soul)),
+    bar = (lambda (judge): 
+            if judge == 0: foo((lambda (soul): soul * soul), true, 5) 
+            else: foo((lambda (judge): bar(judge - 1)), false, judge)) in
+    foo == bar
+
+    
