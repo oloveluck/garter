@@ -43,12 +43,17 @@ open ExtLib
 ;; *)
 (* raise (NotYetImplemented "Implement free_vars for expressions") *)
 
+(* let free_vars (e : 'a aexpr) (env : string list) : string list = 
+  let rec helpA (e : 'a aexpr) (env : StringSet.t) : StringSet.t =
+  match e with
+  | ASeq(first, rest, _) ->  *)
+
 let free_vars (e : 'a aexpr) (env : string list) : string list =
   let rec helpA (e : 'a aexpr) (env : StringSet.t) : StringSet.t =
     match e with
     | ASeq (first, rest, _) -> StringSet.union (helpC first env) (helpA rest env)
     | ALet (name, value, body, _) ->
-      StringSet.union (helpC value env) (helpA body (StringSet.add name env))
+      StringSet.remove name (StringSet.union (helpC value env) (helpA body env))
     | ALetRec (bindings, body, _) ->
       let binding_frees =
         List.fold_right

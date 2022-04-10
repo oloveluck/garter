@@ -111,7 +111,7 @@ void printHelp(FILE *out, SNAKEVAL val)
   else if ((val & CLOSURE_TAG_MASK) == CLOSURE_TAG)
   {
     uint64_t *addr = (uint64_t *)(val - CLOSURE_TAG);
-    fprintf(out, "[%p - 5] ==> <function arity %ld, closed %ld, fn-ptr %p>",
+    fprintf(out, "[%p - 5] ==> <function arity %ld, fn-ptr %p, closed %ld>",
             (uint64_t *)val, addr[0] / 2, addr[1] / 2, (uint64_t *)addr[2]);
     /* fprintf(out, "\nClosed-over values:\n"); */
     /* for (uint64_t i = 0; i < addr[1] / 2; i++) { */
@@ -159,6 +159,7 @@ void printHelp(FILE *out, SNAKEVAL val)
     /* fprintf(out, "%p-->(len=%d)", (int*)(val - 1), len / 2); */
     /* fflush(out); */
     *(addr) = 0x8000000000000000 | (++tupleCounter);
+    // fprintf(out, "%p", addr);
     fprintf(out, "(");
     for (uint64_t i = 1; i <= len; i++)
     {
@@ -166,7 +167,6 @@ void printHelp(FILE *out, SNAKEVAL val)
         fprintf(out, ", ");
       printHelp(out, addr[i]);
     }
-    // fprintf(out, "length is: %ld", len);
     if (len == 1)
       fprintf(out, ", ");
     fprintf(out, ")");
@@ -374,10 +374,8 @@ uint64_t *try_gc(uint64_t *alloc_ptr, uint64_t bytes_needed, uint64_t *cur_frame
   TO_S = new_r15;
   TO_E = new_heap_end;
 
-  printf("FROM_S = %p, FROM_E = %p, TO_S = %p, TO_E = %p\n", FROM_S, FROM_E, TO_S, TO_E);
-  // smarter_print_heap(FROM_S, FROM_E, TO_S, TO_E);
+  /* printf("FROM_S = %p, FROM_E = %p, TO_S = %p, TO_E = %p\n", FROM_S, FROM_E, TO_S, TO_E); */
   // naive_print_heap(FROM_S, FROM_E);
-  printStack(BOOL_TRUE, cur_stack_top, cur_frame, 0);
 
   // Abort early, if we can't allocate a new to-space
   if (new_heap == NULL)
@@ -388,8 +386,20 @@ uint64_t *try_gc(uint64_t *alloc_ptr, uint64_t bytes_needed, uint64_t *cur_frame
       free(old_heap);
     exit(ERR_OUT_OF_MEMORY);
   }
-
+  // printf("stack before gc: \n");
+  // printStack(BOOL_TRUE, cur_stack_top, cur_frame, 0);
+  // printf("old heap: \n");
+  printf("printing heap before gc: \n");
+  naive_print_heap(FROM_S, FROM_E);
+  printStack(BOOL_TRUE, cur_stack_top, cur_frame, 0);
+  return alloc_ptr;
   new_r15 = gc(STACK_BOTTOM, cur_frame, cur_stack_top, FROM_S, HEAP_END, new_r15);
+  // printf("\nstack after gc: \n");
+  printStack(BOOL_TRUE, cur_stack_top, cur_frame, 0);
+  // printf("new heap top: %p", new_r15);
+  printf("\nnew heap: \n");
+  naive_print_heap(TO_S, TO_E);
+  // return new_r15;
   HEAP = new_heap;
   HEAP_END = new_heap_end;
   free(old_heap);
@@ -442,7 +452,8 @@ int main(int argc, char **argv)
   SNAKEVAL result = our_code_starts_here(aligned, HEAP_SIZE);
   /* smarter_print_heap(aligned, HEAP_END, TO_S, TO_E); */
   print(result);
-
+  // naive_print_heap(FROM_S, FROM_E);
+  // naive_print_heap(TO_S, TO_E);
   free(HEAP);
   return 0;
 }

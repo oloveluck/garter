@@ -931,8 +931,7 @@ and reserve size tag =
       ( IMov (Reg RAX, LabelContents "?HEAP_END")
       , sprintf "Reserving %d words" (size / word_size) )
   ; ISub (Reg RAX, Const (Int64.of_int size))
-  ; ICmp (Reg RAX, Reg heap_reg)
-  ; IJge (Label ok)
+  ; ICmp (Reg RAX, Reg heap_reg) (* ; IJge (Label ok) *)
   ]
   @ native_call
       (Label "?try_gc")
@@ -1226,10 +1225,11 @@ and compile_cexpr
   | CPrim2 (op, e1, e2, tag) -> compile_prim2 op e1 e2 funname env tag
   | CImmExpr immexpr -> compile_imm immexpr funname env
   | CTuple (values, tag) ->
-    [ IMov (Reg RDI, Reg R15) ]
-    @
     let len = List.length values in
-    reserve (len + 1) tag
+    [ ILineComment "begin reserving tuple" ]
+    @ reserve (8 * (len + 1)) tag
+    @ [ IMov (Reg RDI, Reg R15) ]
+    (* print_stack_instructions *)
     @ [ IMov (Reg RAX, Sized (QWORD_PTR, Const (Int64.of_int (2 * len))))
         (* [ IMov (Reg RAX, Sized (QWORD_PTR, Const 4L)) *)
       ; IMov (RegOffset (0, R15), Reg RAX)
@@ -1321,7 +1321,8 @@ and compile_cexpr
     let num_bindings = deepest_stack body env (sprintf "closure#%d" tag) in
     let heap_offset = 24 + (num_frees * 8) + if num_frees mod 2 = 0 then 8 else 0 in
     (* let env = allocate_cexpr e 1 in *)
-    reserve (3 + num_frees) tag
+    reserve (8 * (3 + num_frees)) tag
+    @ [ IMov (Reg RDX, Reg R15) ]
     @ [ ILineComment (dump env) ]
     @ [ IJmp (Label after) ]
     @ [ ILabel name ]
@@ -1366,7 +1367,7 @@ and compile_cexpr
     @ [ IMov (Reg RDI, Label name) ]
     @ [ IMov (RegOffset (8, R15), Reg RDI) ]
     (* move num frees into third pos *)
-    @ [ IMov (Reg RDI, Const (Int64.of_int num_frees)) ]
+    @ [ IMov (Reg RDI, Const (Int64.of_int (num_frees * 2))) ]
     @ [ IMov (RegOffset (16, R15), Reg RDI) ]
     (* move frees into spots 4-n *)
     @ [ ILineComment "move the closed over values onto heap offsets" ]
@@ -1377,7 +1378,7 @@ and compile_cexpr
          frees
       |> List.flatten)
     (* put closure into RAX *)
-    @ [ IMov (Reg RAX, Reg R15) ]
+    @ [ IMov (Reg RAX, Reg RDX) ]
     (* tag closure *)
     @ [ IAdd (Reg RAX, Const 5L) ]
     (* offset R15 *)

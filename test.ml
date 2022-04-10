@@ -17,7 +17,13 @@ let ta name program input expected =
 
 let tgc name heap_size program input expected =
   name
-  >:: test_run ~args:[ string_of_int heap_size ] ~std_input:input program name expected
+  >:: test_run
+        ~args:[ string_of_int heap_size ]
+        ~no_builtins:true
+        ~std_input:input
+        program
+        name
+        expected
 ;;
 
 let tvg name program input expected =
@@ -260,12 +266,61 @@ let reg_tests =
 ;;
 
 let test_tests =
-  [ t "tlam" "let f = (lambda: (1, 2)) in\n\nf()\n" "" "(1, 2)"
-  ; t "tlam2" "let rec f = (lambda: (1, 2)) in\n\nf()\n" "" "(1, 2)"
+  [ tgc
+      "tuple_gc"
+      (25 + builtins_size)
+      "\n\
+      \  \n\
+      \        let tup1 = (1,2,(3,4)) in\n\n\
+       let lam1 = (lambda (x): tup1) in\n\
+      \          let num1 = 0 in\n\
+      \             let tup2 = (4, 5, 6) in\n\
+      \                  lam1(5)"
+      ""
+      "(1, 2, (3, 4))"
+    (* t "tlam" "let f = (lambda: (1, 2)) in\n\nf()\n" "" "(1, 2)"
+  ; t "tlam2" "let rec f = (lambda: (1, 2)) in\n\nf()\n" "" "(1, 2)" *)
   ]
 ;;
 
-let suite = "unit_tests" >::: pair_tests @ oom @ gc @ test_tests @ reg_tests
+(* let test_tests =
+  [ tgc
+      "tuple"
+      (25 + builtins_size)
+      "\n\
+      \  \n\
+      \        let tup1 = (1,2,3,4,5) in\n\
+      \    let tup2 = (6,7,8,9) in\n\n\
+      \        let tup3 = (10,11,12,13) in\n\
+      \           tup1\n\n"
+      ""
+      "(6,7,8,9)"
+    (* t "tlam" "let f = (lambda: (1, 2)) in\n\nf()\n" "" "(1, 2)"
+  ; t "tlam2" "let rec f = (lambda: (1, 2)) in\n\nf()\n" "" "(1, 2)" *)
+  ]
+;; *)
+
+(* let test_tests =
+  [ tgc
+      "tuple"
+      (25 + builtins_size)
+      "\n\
+      \  \n\
+      \        let tup1 = 1 in\n\
+      \    let tup2 = 2 in\n\n\
+      \        let tup3 = 3 in\n\
+      \           tup3\n\n"
+      ""
+      "(6,7,8,9)"
+    (* t "tlam" "let f = (lambda: (1, 2)) in\n\nf()\n" "" "(1, 2)"
+  ; t "tlam2" "let rec f = (lambda: (1, 2)) in\n\nf()\n" "" "(1, 2)" *)
+  ]
+;; *)
+
+let suite = "unit_tests" >::: test_tests @ reg_tests
+
+(* pair_tests @ oom @ gc @ test_tests *)
+(* @ reg_tests *)
 
 (* let suite = "unit_tests" >::: reg_tests *)
 let () = run_test_tt_main ("all_tests" >::: [ suite; input_file_test_suite () ])
