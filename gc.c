@@ -67,7 +67,7 @@ void smarter_print_heap(uint64_t *from_start, uint64_t *from_end, uint64_t *to_s
  */
 uint64_t *copy_if_needed(uint64_t *garter_val_addr, uint64_t *heap_top, int just_log)
 {
-  printf("garter_val_addr: %#018lx\n", garter_val_addr);
+  // printf("garter_val_addr: %#018lx\n", garter_val_addr);
 
   uint64_t val = *garter_val_addr;
 
@@ -78,13 +78,13 @@ uint64_t *copy_if_needed(uint64_t *garter_val_addr, uint64_t *heap_top, int just
 
   if ((val & CLOSURE_TAG_MASK) == CLOSURE_TAG || (val & TUPLE_TAG_MASK) == TUPLE_TAG)
   {
-    naive_print_heap(FROM_S, FROM_E);
-    naive_print_heap(TO_S, TO_E);
-    printf("\n val: %#018lx \n", val);
+    // naive_print_heap(FROM_S, FROM_E);
+    // naive_print_heap(TO_S, TO_E);
+    // printf("\n val: %#018lx \n", val);
     int is_tuple = ((val & TUPLE_TAG_MASK) == TUPLE_TAG);
     // naive_print_heap(FROM_S, FROM_E);
     uint64_t *heap_thing_addr = (uint64_t *)(val & ~0x7);
-    printf("\nheapthing addr: %#018lx\n", heap_thing_addr);
+    // printf("\nheapthing addr: %#018lx\n", heap_thing_addr);
     if ((*heap_thing_addr & TUPLE_TAG_MASK) == 0x3)
     {
       *garter_val_addr = (*heap_thing_addr & TUPLE_TAG_MASK) | is_tuple ? TUPLE_TAG : CLOSURE_TAG;
@@ -92,7 +92,7 @@ uint64_t *copy_if_needed(uint64_t *garter_val_addr, uint64_t *heap_top, int just
     }
     // printf("\n heap_thing_addr: %ld \n", heap_thing_addr[0]);
     uint64_t length = is_tuple ? (uint64_t)(heap_thing_addr[0]) + 2 : (uint64_t)(heap_thing_addr[2]) + 6;
-    printf(is_tuple ? "length: %#018lx \n" : "closure size %#018lx \n", length);
+    // printf(is_tuple ? "length: %#018lx \n" : "closure size %#018lx \n", length);
     uint64_t old_length = length / 2;
     length = length / 2;
     if (length % 2 != 0)
@@ -117,8 +117,8 @@ uint64_t *copy_if_needed(uint64_t *garter_val_addr, uint64_t *heap_top, int just
     uint64_t *new_heap_top = heap_top + length;
     *garter_val_addr = ((uint64_t)(heap_top)) | (is_tuple ? TUPLE_TAG : CLOSURE_TAG);
     *heap_thing_addr = ((uint64_t)(heap_top) | 0x3);
-    printf("\nold heap top addr: %#018lx\nnew heap top addr: %#018lx\n", heap_top, new_heap_top);
-    printf("setting fowarding pointer to %#018lx at memory: %#018lx\n", *heap_thing_addr, heap_thing_addr);
+    // printf("\nold heap top addr: %#018lx\nnew heap top addr: %#018lx\n", heap_top, new_heap_top);
+    // printf("setting fowarding pointer to %#018lx at memory: %#018lx\n", *heap_thing_addr, heap_thing_addr);
     for (uint64_t i = 0; i < length; i++)
     {
       // printf("\n");
@@ -148,8 +148,8 @@ uint64_t *copy_if_needed(uint64_t *garter_val_addr, uint64_t *heap_top, int just
 int gc_count = 0;
 uint64_t *gc(uint64_t *bottom_frame, uint64_t *top_frame, uint64_t *top_stack, uint64_t *from_start, uint64_t *from_end, uint64_t *to_start)
 {
-  naive_print_heap(FROM_S, FROM_E);
-  naive_print_heap(TO_S, TO_E);
+  // naive_print_heap(FROM_S, FROM_E);
+  // naive_print_heap(TO_S, TO_E);
   gc_count++;
   printf("gcing");
   uint64_t *old_top_frame = top_frame;
@@ -161,11 +161,11 @@ uint64_t *gc(uint64_t *bottom_frame, uint64_t *top_frame, uint64_t *top_stack, u
       {
         uint64_t *ts_old = to_start;
         // printf("old heap: \n");
-        printf("\nto start: %#018lx\n", to_start);
-        printf("cur_word: %#018lx\n", *cur_word);
+        // printf("\nto start: %#018lx\n", to_start);
+        // printf("cur_word: %#018lx\n", *cur_word);
         // printStack(*cur_word, top_stack, bottom_frame, 0);
         to_start = copy_if_needed(cur_word, to_start, 0);
-        printf("\nto start: %#018lx\n", to_start);
+        // printf("\nto start: %#018lx\n", to_start);
         // printf("new heap: \n");
       }
       // print(*cur_word);
