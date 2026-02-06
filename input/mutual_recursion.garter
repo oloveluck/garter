@@ -1,11 +1,54 @@
-def f(x):
-  if x == 0: 0
-  else: g(x - 1)
-and def g(x):
-  if x == 0: 0
-  else: h(x - 1)
-and def h(x):
-  if x == 0: 0
-  else: f(x - 1)
+def is_even(n):
+  match n:
+    | 0 => true
+    | _ => is_odd(n - 1)
+and def is_odd(n):
+  match n:
+    | 0 => false
+    | _ => is_even(n - 1)
 
-f(10)
+def f(x):
+  match x:
+    | 0 => "f-done"
+    | _ => g(x - 1)
+and def g(x):
+  match x:
+    | 0 => "g-done"
+    | _ => h(x - 1)
+and def h(x):
+  match x:
+    | 0 => "h-done"
+    | _ => f(x - 1)
+
+def state_a(n):
+  if n == 0: "ended in A"
+  else: state_b(n - 1)
+and def state_b(n):
+  if n == 0: "ended in B"
+  else: state_c(n - 1)
+and def state_c(n):
+  if n == 0: "ended in C"
+  else: state_a(n - 1)
+
+print("Mutual recursion examples:");
+
+print("is_even(10):");
+print(is_even(10));
+print("is_even(7):");
+print(is_even(7));
+print("is_odd(7):");
+print(is_odd(7));
+
+print("f(10) cycles through f->g->h->f...:");
+print(f(10));
+print("f(11):");
+print(f(11));
+print("f(12):");
+print(f(12));
+
+print("state_a(10) cycles through A->B->C->A...:");
+print(state_a(10));
+print("state_a(11):");
+print(state_a(11));
+
+is_even(100)

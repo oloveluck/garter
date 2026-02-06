@@ -1,0 +1,10 @@
+def fib(n):
+  match n:
+    | 0 => 0
+    | 1 => 1
+    | _ => fib(n - 1) + fib(n - 2)
+
+print("Computing fib(10):");
+print(fib(10));
+print("Computing fib(15):");
+fib(15)

@@ -1,54 +1,58 @@
 def foldr(f, z, xs):
-  if xs == nil: z
-  else: f(xs[0], foldr(f, z, xs[1]))
+  match xs:
+    | nil => z
+    | (h, t) => f(h, foldr(f, z, t))
 
 def foldl(f, z, xs):
-  if xs == nil: z
-  else: foldl(f, f(z, xs[0]), xs[1])
+  match xs:
+    | nil => z
+    | (h, t) => foldl(f, f(z, h), t)
 
 def map(f, xs):
-  if xs == nil: nil
-  else: (f(xs[0]), map(f, xs[1]))
+  match xs:
+    | nil => nil
+    | (h, t) => (f(h), map(f, t))
 
 def filter(p, xs):
-  if xs == nil: nil
-  else:
-    if p(xs[0]): (xs[0], filter(p, xs[1]))
-    else: filter(p, xs[1])
+  match xs:
+    | nil => nil
+    | (h, t) =>
+      if p(h): (h, filter(p, t))
+      else: filter(p, t)
 
 def zip_with(f, xs, ys):
-  if xs == nil: nil
-  else:
-    if ys == nil: nil
-    else: (f(xs[0], ys[0]), zip_with(f, xs[1], ys[1]))
+  match xs:
+    | nil => nil
+    | (hx, tx) =>
+      match ys:
+        | nil => nil
+        | (hy, ty) => (f(hx, hy), zip_with(f, tx, ty))
 
 def take(n, xs):
   if n == 0: nil
   else:
-    if xs == nil: nil
-    else: (xs[0], take(n - 1, xs[1]))
+    match xs:
+      | nil => nil
+      | (h, t) => (h, take(n - 1, t))
 
 def drop(n, xs):
   if n == 0: xs
   else:
-    if xs == nil: nil
-    else: drop(n - 1, xs[1])
+    match xs:
+      | nil => nil
+      | (h, t) => drop(n - 1, t)
 
 def unfold(done, step, seed):
   if done(seed): nil
   else:
-    let pair = step(seed) in
-    (pair[0], unfold(done, step, pair[1]))
+    match step(seed):
+      | (val, next) => (val, unfold(done, step, next))
+      | _ => nil
 
 def para(f, z, xs):
-  if xs == nil: z
-  else: f(xs[0], xs[1], para(f, z, xs[1]))
-
-def hylo(alg, coalg, done, seed):
-  if done(seed): seed
-  else:
-    let pair = coalg(seed) in
-    alg(pair[0], hylo(alg, coalg, done, pair[1]))
+  match xs:
+    | nil => z
+    | (h, t) => f(h, t, para(f, z, t))
 
 def sum(xs): foldr((lambda (x, acc): x + acc), 0, xs)
 def product(xs): foldl((lambda (acc, x): acc * x), 1, xs)
@@ -56,52 +60,43 @@ def length(xs): foldl((lambda (acc, x): acc + 1), 0, xs)
 def reverse(xs): foldl((lambda (acc, x): (x, acc)), nil, xs)
 def append(xs, ys): foldr((lambda (x, acc): (x, acc)), ys, xs)
 def concat(xss): foldr(append, nil, xss)
-def all(p, xs): foldl((lambda (acc, x): if acc: p(x) else: false), true, xs)
-def any(p, xs): foldl((lambda (acc, x): if acc: true else: p(x)), false, xs)
 
 let nums = (1, (2, (3, (4, (5, nil))))) in
 let nums2 = (10, (20, (30, nil))) in
 
-let sum_r = sum(nums) in
-let prod_r = product(nums) in
-let len_r = length(nums) in
-let rev_r = reverse(nums) in
-let doubled = map((lambda (x): x * 2), nums) in
-let big = filter((lambda (x): x > 2), nums) in
-let zipped = zip_with((lambda (a, b): a + b), nums, nums2) in
-let first3 = take(3, nums) in
-let last2 = drop(3, nums) in
-let appended = append(nums2, nums) in
+print("Recursion schemes demo");
+
+print("sum:");
+print(sum(nums));
+print("product:");
+print(product(nums));
+print("length:");
+print(length(nums));
+print("reverse:");
+print(reverse(nums));
+print("doubled:");
+print(map((lambda (x): x * 2), nums));
+print("filtered > 2:");
+print(filter((lambda (x): x > 2), nums));
+print("zip_with (+):");
+print(zip_with((lambda (a, b): a + b), nums, nums2));
+print("take 3:");
+print(take(3, nums));
+print("drop 3:");
+print(drop(3, nums));
+print("append:");
+print(append(nums2, nums));
 
 let range = unfold(
   (lambda (n): n > 5),
   (lambda (n): (n, n + 1)),
   1) in
+print("unfold range 1-5:");
+print(range);
 
 let tails = para(
   (lambda (h, t, acc): (t, acc)),
   nil,
   (1, (2, (3, nil)))) in
-
-let fact6 = hylo(
-  (lambda (n, acc): n * acc),
-  (lambda (n): (n, n - 1)),
-  (lambda (n): n < 2),
-  6) in
-
-let all_pos = all((lambda (x): x > 0), nums) in
-let any_big = any((lambda (x): x > 4), nums) in
-
-(
-  (sum_r, prod_r, len_r),
-  rev_r,
-  doubled,
-  big,
-  zipped,
-  (first3, last2),
-  appended,
-  range,
-  tails,
-  fact6,
-  (all_pos, any_big)
-)
+print("tails:");
+tails

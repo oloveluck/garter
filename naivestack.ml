@@ -65,6 +65,7 @@ let rec deepest_stack e (env : naive_stack_env) funname =
     | ImmNil _ -> 0
     | ImmNum _ -> 0
     | ImmBool _ -> 0
+    | ImmString _ -> 0
     | ImmId (name, _) -> name_to_offset name
   and name_to_offset name =
     match lookup funname name env with

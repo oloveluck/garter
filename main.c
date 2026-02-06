@@ -21,10 +21,12 @@ const uint64_t NUM_TAG_MASK = 0x0000000000000001;
 const uint64_t BOOL_TAG_MASK = 0x0000000000000007;
 const uint64_t TUPLE_TAG_MASK = 0x0000000000000007;
 const uint64_t CLOSURE_TAG_MASK = 0x0000000000000007;
+const uint64_t STRING_TAG_MASK = 0x0000000000000007;
 const uint64_t NUM_TAG = 0x0000000000000000;
 const uint64_t BOOL_TAG = 0x0000000000000007;
 const uint64_t TUPLE_TAG = 0x0000000000000001;
 const uint64_t CLOSURE_TAG = 0x0000000000000005;
+const uint64_t STRING_TAG = 0x0000000000000003;
 const uint64_t BOOL_TRUE = 0xFFFFFFFFFFFFFFFF;
 const uint64_t BOOL_FALSE = 0x7FFFFFFFFFFFFFFF;
 const uint64_t NIL = ((uint64_t)NULL | TUPLE_TAG);
@@ -71,6 +73,26 @@ SNAKEVAL equal(SNAKEVAL val1, SNAKEVAL val2)
   {
     return BOOL_FALSE;
   }
+  // String comparison
+  if ((val1 & STRING_TAG_MASK) == STRING_TAG && (val2 & STRING_TAG_MASK) == STRING_TAG)
+  {
+    uint64_t *str1 = (uint64_t *)(val1 - STRING_TAG);
+    uint64_t *str2 = (uint64_t *)(val2 - STRING_TAG);
+    uint64_t len1 = str1[0];
+    uint64_t len2 = str2[0];
+    if (len1 != len2)
+    {
+      return BOOL_FALSE;
+    }
+    char *chars1 = (char *)&str1[1];
+    char *chars2 = (char *)&str2[1];
+    for (uint64_t i = 0; i < len1; i++)
+    {
+      if (chars1[i] != chars2[i])
+        return BOOL_FALSE;
+    }
+    return BOOL_TRUE;
+  }
   if ((val1 & TUPLE_TAG_MASK) == TUPLE_TAG && (val2 & TUPLE_TAG_MASK) == TUPLE_TAG)
   {
     uint64_t *tup1 = (uint64_t *)(val1 - TUPLE_TAG);
@@ -107,6 +129,17 @@ void printHelp(FILE *out, SNAKEVAL val)
   else if (val == BOOL_FALSE)
   {
     fprintf(out, "false");
+  }
+  else if ((val & STRING_TAG_MASK) == STRING_TAG)
+  {
+    uint64_t *addr = (uint64_t *)(val - STRING_TAG);
+    uint64_t len = addr[0];
+    char *chars = (char *)&addr[1];
+    // Print the string characters
+    for (uint64_t i = 0; i < len; i++)
+    {
+      fputc(chars[i], out);
+    }
   }
   else if ((val & CLOSURE_TAG_MASK) == CLOSURE_TAG)
   {
@@ -326,8 +359,15 @@ void error(uint64_t code, SNAKEVAL val)
     fprintf(stderr, "Error: Unknown error code: %ld, val: ", code);
     printHelp(stderr, val);
   }
-  fprintf(stderr, "\n%p ==> ", (uint64_t *)val);
-  printHelp(stderr, val);
+  // Only print val as snake value for errors where val is actually a snake value
+  // Index errors pass raw integers, not snake values
+  if (code != ERR_GET_LOW_INDEX && code != ERR_GET_HIGH_INDEX &&
+      code != ERR_SET_LOW_INDEX && code != ERR_SET_HIGH_INDEX &&
+      code != ERR_NIL_DEREF && code != ERR_OUT_OF_MEMORY &&
+      code != ERR_CALL_ARITY_ERR) {
+    fprintf(stderr, "\n%p ==> ", (uint64_t *)val);
+    printHelp(stderr, val);
+  }
   fprintf(stderr, "\n");
   fflush(stderr);
   // naive_print_heap(HEAP, HEAP_END);

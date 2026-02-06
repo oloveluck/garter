@@ -1,5 +1,6 @@
-def make_counter_step(n):
-  (n, (lambda (unused): make_counter_step(n + 1)))
+def make_counter(start):
+  let count = start in
+  (count, (lambda (unused): make_counter(count + 1)))
 
 let make_adder = (lambda (n): (lambda (x): x + n)) in
 
@@ -12,22 +13,30 @@ let add10 = make_adder(10) in
 let double = (lambda (x): x * 2) in
 let square = (lambda (x): x * x) in
 
-let double_after_add5 = compose(double)(add5) in
+let double_then_add5 = compose(add5)(double) in
+let add5_then_double = compose(double)(add5) in
 
 let quadruple = twice(double) in
 
-let counter = make_counter_step(0) in
-let count1 = counter[0] in
-let counter2 = counter[1](0) in
-let count2 = counter2[0] in
-let counter3 = counter2[1](0) in
-let count3 = counter3[0] in
+let c0 = make_counter(0) in
+let count0 = c0[0] in
+let c1 = c0[1](0) in
+let count1 = c1[0] in
+let c2 = c1[1](0) in
+let count2 = c2[0] in
 
-(
-  add5(10),
-  add10(add5(0)),
-  double_after_add5(3),
-  quadruple(3),
-  twice(square)(2),
-  (count1, count2, count3)
-)
+print("Closure examples:");
+print("add5(10) =");
+print(add5(10));
+print("add10(add5(0)) =");
+print(add10(add5(0)));
+print("double_then_add5(3) = double(3) + 5 = 6 + 5 =");
+print(double_then_add5(3));
+print("add5_then_double(3) = (3 + 5) * 2 =");
+print(add5_then_double(3));
+print("quadruple(3) =");
+print(quadruple(3));
+print("twice(square)(2) = square(square(2)) = square(4) =");
+print(twice(square)(2));
+print("Counter sequence:");
+(count0, count1, count2)

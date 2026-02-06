@@ -4,6 +4,7 @@ open Phases
 open Exprs
 open Assembly
 open Naivestack
+open Registerallocation
 open Freevars
 open Errors
 open ExtLib
@@ -29,6 +30,8 @@ let closure_tag = 0x0000000000000005L
 let closure_tag_mask = 0x0000000000000007L
 let tuple_tag = 0x0000000000000001L
 let tuple_tag_mask = 0x0000000000000007L
+let string_tag = 0x0000000000000003L
+let string_tag_mask = 0x0000000000000007L
 let const_nil = HexConst tuple_tag
 let err_COMP_NOT_NUM = 1L
 let err_ARITH_NOT_NUM = 2L
@@ -119,13 +122,19 @@ let funv_to_op (funv : 'a immexpr) : prim1 =
 
 let is_tuple_instructions (tag : tag) =
   let d = sprintf "is_tup_done_%d" tag in
+  let is_nil = sprintf "is_tup_nil_%d" tag in
   [ IMov (Reg RSI, Reg RAX)
+  (* First check if it's nil (exactly 0x1) - nil is not a tuple *)
+  ; ICmp (Reg RSI, const_nil)
+  ; IJe (Label is_nil)
+  (* Now check tag bits *)
   ; IMov (Reg RAX, Const 15L)
   ; IAnd (Reg RAX, Reg RSI)
   ; IMov (Reg RDI, Const 1L)
   ; ICmp (Reg RAX, Reg RDI)
   ; IMov (Reg RAX, const_true)
   ; IJe (Label d)
+  ; ILabel is_nil
   ; IMov (Reg RAX, const_false)
   ; ILabel d
   ]
@@ -228,6 +237,7 @@ let is_well_formed (p : sourcespan program) : sourcespan program fallible =
     | ESetItem (e, idx, newval, pos) -> wf_E e env @ wf_E idx env @ wf_E newval env
     | ENil _ -> []
     | EBool _ -> []
+    | EString _ -> []
     | ENumber (n, loc) ->
       if n > Int64.div Int64.max_int 2L || n < Int64.div Int64.min_int 2L
       then [ Overflow (n, loc) ]
@@ -392,6 +402,22 @@ let is_well_formed (p : sourcespan program) : sourcespan program fallible =
       in
       process_args binds
       @ wf_E body (merge_envs (List.concat (List.map flatten_bind binds)) env)
+    | EMatch (scrutinee, cases, _) ->
+      let scrutinee_errs = wf_E scrutinee env in
+      let rec flatten_pattern (p : sourcespan pattern) : (string * scope_info) list =
+        match p with
+        | PWild _ | PNum _ | PBool _ | PString _ | PNil _ -> []
+        | PVar (x, xloc) -> [ x, (xloc, None, None) ]
+        | PTuple (pats, _) -> List.concat (List.map flatten_pattern pats)
+      in
+      let case_errs =
+        List.concat_map
+          (fun (pat, body) ->
+            let pat_binds = flatten_pattern pat in
+            wf_E body (merge_envs pat_binds env))
+          cases
+      in
+      scrutinee_errs @ case_errs
   and wf_D d (env : scope_info name_envt) (tyenv : StringSet.t) =
     match d with
     | DFun (_, args, body, _) ->
@@ -557,6 +583,7 @@ let desugar (p : sourcespan program) : sourcespan program =
     | EId (x, tag) -> EId (x, tag)
     | ENumber (n, tag) -> ENumber (n, tag)
     | EBool (b, tag) -> EBool (b, tag)
+    | EString (s, tag) -> EString (s, tag)
     | ENil (t, tag) -> ENil (t, tag)
     | EPrim1 (op, e, tag) -> EPrim1 (op, helpE e, tag)
     | EPrim2 (op, e1, e2, tag) -> EPrim2 (op, helpE e1, helpE e2, tag)
@@ -582,6 +609,65 @@ let desugar (p : sourcespan program) : sourcespan program =
         List.fold_right (fun binds body -> ELet (binds, body, tag)) newbinds (helpE body)
       in
       ELambda (params, newbody, tag)
+    | EMatch (scrutinee, cases, tag) ->
+      (* Desugar match to nested if/let expressions *)
+      let scrut_name = gensym "match_scrut" in
+      let scrut_id = EId (scrut_name, tag) in
+      let rec desugar_cases cases =
+        match cases with
+        | [] ->
+          (* No more cases - runtime error (shouldn't happen with wildcard) *)
+          ENumber (0L, tag)  (* Could add a proper error here *)
+        | (pat, body) :: rest ->
+          let condition, bindings = pattern_to_condition scrut_id pat tag in
+          let body_with_bindings =
+            if bindings = []
+            then helpE body
+            else ELet (bindings, helpE body, tag)
+          in
+          (match condition with
+          | None -> body_with_bindings  (* Wildcard or var - always matches *)
+          | Some cond -> EIf (cond, body_with_bindings, desugar_cases rest, tag))
+      in
+      ELet ([(BName (scrut_name, false, tag), helpE scrutinee, tag)], desugar_cases cases, tag)
+  and pattern_to_condition (scrut : sourcespan expr) (pat : sourcespan pattern) (tag : sourcespan) : sourcespan expr option * sourcespan binding list =
+    match pat with
+    | PWild _ -> (None, [])
+    | PVar (name, vtag) -> (None, [(BName (name, false, vtag), scrut, vtag)])
+    | PNum (n, _) ->
+      (Some (EPrim2 (Eq, scrut, ENumber (n, tag), tag)), [])
+    | PBool (b, _) ->
+      (Some (EPrim2 (Eq, scrut, EBool (b, tag), tag)), [])
+    | PString (s, _) ->
+      (Some (EPrim2 (Eq, scrut, EString (s, tag), tag)), [])
+    | PNil _ ->
+      (Some (EPrim2 (Eq, scrut, ENil tag, tag)), [])
+    | PTuple (pats, ptag) ->
+      (* Check that it's a tuple with the right number of elements *)
+      let len = List.length pats in
+      let is_tuple_check = EPrim1 (IsTuple, scrut, tag) in
+      let size_check =
+        EPrim2 (CheckSize, scrut, ENumber (Int64.of_int len, tag), tag)
+      in
+      let tuple_check =
+        EPrim2 (And, is_tuple_check, EPrim2 (Eq, size_check, EBool (true, tag), tag), tag)
+      in
+      (* Generate conditions and bindings for each element *)
+      let element_checks =
+        List.mapi (fun i pat ->
+          let elem_scrut = EGetItem (scrut, ENumber (Int64.of_int i, tag), tag) in
+          pattern_to_condition elem_scrut pat tag
+        ) pats
+      in
+      let conditions = List.filter_map fst element_checks in
+      let bindings = List.concat_map snd element_checks in
+      let combined_condition =
+        List.fold_left
+          (fun acc cond -> EPrim2 (And, acc, cond, tag))
+          tuple_check
+          conditions
+      in
+      (Some combined_condition, bindings)
   in
   helpP p
 ;;
@@ -634,6 +720,7 @@ let rename_and_tag (p : tag program) : tag program =
     | EIf (c, t, f, tag) -> EIf (helpE env c, helpE env t, helpE env f, tag)
     | ENumber _ -> e
     | EBool _ -> e
+    | EString _ -> e
     | ENil _ -> e
     | EId (name, tag) ->
       (try EId (find env name, tag) with
@@ -671,6 +758,37 @@ let rename_and_tag (p : tag program) : tag program =
       let binds', env' = helpBS env binds in
       let body' = helpE env' body in
       ELambda (binds', body', tag)
+    | EMatch (scrutinee, cases, tag) ->
+      (* Match should have been desugared before renaming *)
+      let scrutinee' = helpE env scrutinee in
+      let cases' =
+        List.map
+          (fun (pat, body) ->
+            let pat', env' = helpPat env pat in
+            (pat', helpE env' body))
+          cases
+      in
+      EMatch (scrutinee', cases', tag)
+  and helpPat env pat =
+    match pat with
+    | PWild tag -> (PWild tag, env)
+    | PVar (name, tag) ->
+      let name' = sprintf "%s_%d" name tag in
+      (PVar (name', tag), (name, name') :: env)
+    | PTuple (pats, tag) ->
+      let pats', env' =
+        List.fold_left
+          (fun (pats, env) pat ->
+            let pat', env' = helpPat env pat in
+            (pats @ [pat'], env'))
+          ([], env)
+          pats
+      in
+      (PTuple (pats', tag), env')
+    | PNum (n, tag) -> (PNum (n, tag), env)
+    | PBool (b, tag) -> (PBool (b, tag), env)
+    | PString (s, tag) -> (PString (s, tag), env)
+    | PNil tag -> (PNil tag, env)
   in
   rename [] p
 ;;
@@ -767,6 +885,7 @@ let anf (p : tag program) : unit aprogram =
     | ENumber (n, _) -> ImmNum (n, ()), []
     | EBool (b, _) -> ImmBool (b, ()), []
     | EId (name, _) -> ImmId (name, ()), []
+    | EString (s, _) -> ImmString (s, ()), []
     | ENil _ -> ImmNil (), []
     | ESeq (e1, e2, _) ->
       let e1_imm, e1_setup = helpI e1 in
@@ -859,6 +978,8 @@ let anf (p : tag program) : unit aprogram =
       body_ans, exp_setup @ [ BLet (bind, exp_ans) ] @ body_setup
     | ELet ((BTuple (binds, _), exp, _) :: rest, body, pos) ->
       raise (InternalCompilerError "Tuple bindings should have been desugared away")
+    | EMatch _ ->
+      raise (InternalCompilerError "Match should have been desugared away")
   and helpA e : unit aexpr =
     let ans, ans_setup = helpC e in
     List.fold_right
@@ -916,6 +1037,51 @@ and reserve size tag =
         , "assume gc success if returning here, so RAX holds the new heap_reg value" )
     ; ILabel ok
     ]
+
+(* Compile a string literal to heap-allocated string *)
+and compile_string (s : string) (tag : tag) : instruction list =
+  let len = String.length s in
+  (* Calculate number of words needed: 1 for length + ceil(len/8) for chars *)
+  let char_words = (len + 7) / 8 in
+  let total_words = 1 + char_words in
+  (* Align to 16 bytes (2 words) *)
+  let aligned_words = total_words + (total_words mod 2) in
+  let size = aligned_words * 8 in
+  (* Pack characters into 64-bit words (8 chars per word, little-endian) *)
+  let pack_chars start =
+    let rec pack i acc =
+      if i >= 8 || start + i >= len then acc
+      else
+        let char_val = Int64.of_int (Char.code s.[start + i]) in
+        let shifted = Int64.shift_left char_val (i * 8) in
+        pack (i + 1) (Int64.logor acc shifted)
+    in
+    pack 0 0L
+  in
+  let char_word_values = List.init char_words (fun i -> pack_chars (i * 8)) in
+  reserve size tag
+  @ [ ILineComment (sprintf "String literal: \"%s\"" (String.escaped s)) ]
+  (* Save heap pointer for later tagging *)
+  @ [ IMov (Reg RDI, Reg R15) ]
+  (* Store length in first word *)
+  @ [ IMov (Reg RAX, Const (Int64.of_int len))
+    ; IMov (RegOffset (0, R15), Reg RAX)
+    ; IAdd (Reg R15, Const 8L)
+    ]
+  (* Store character words *)
+  @ (List.mapi
+       (fun _i word_val ->
+         [ IMov (Reg RAX, Const word_val)
+         ; IMov (RegOffset (0, R15), Reg RAX)
+         ; IAdd (Reg R15, Const 8L)
+         ])
+       char_word_values
+    |> List.flatten)
+  (* Pad if needed *)
+  @ (if total_words mod 2 <> 0 then [ IAdd (Reg R15, Const 8L) ] else [])
+  (* Tag pointer with string tag (0x3) *)
+  @ [ IAdd (Reg RDI, Const string_tag) ]
+  @ [ IMov (Reg RAX, Reg RDI) ]
 
 (* IMPLEMENT THIS FROM YOUR PREVIOUS ASSIGNMENT *)
 (* Additionally, you are provided an initial environment of values that you may want to
@@ -1048,7 +1214,7 @@ and compile_prim1
     @ [ ISub (Reg RAX, Const 2L) ]
     @ [ IJo (error_code_to_label err_OVERFLOW) ]
   | Print -> compile_imm e funname env @ print_instructions
-  | IsTuple -> is_tuple_instructions tag
+  | IsTuple -> compile_imm e funname env @ is_tuple_instructions tag
   | PrintStack ->
     compile_imm e funname env
     @ [ IMov (Reg RDI, Reg RAX)
@@ -1066,7 +1232,32 @@ and compile_prim2
     (tag : tag)
   =
   match p2 with
-  | CheckSize -> []
+  | CheckSize ->
+    (* e1 is tuple, e2 is expected size (as number) *)
+    (* Returns true if tuple size matches, false otherwise *)
+    (* Safe: returns false if e1 is not a tuple *)
+    let done_label = sprintf "checksize_done#%d" tag in
+    let not_tuple_label = sprintf "checksize_not_tuple#%d" tag in
+    compile_imm e2 funname env  (* expected size in RAX, already as snake number *)
+    @ [ IMov (Reg RDX, Reg RAX) ]  (* save expected size (as snake num) in RDX *)
+    @ compile_imm e1 funname env  (* tuple candidate in RAX *)
+    (* First check if it's a tuple: (val & 0x7) == 1 *)
+    @ [ IMov (Reg RSI, Reg RAX) ]  (* save value *)
+    @ [ IAnd (Reg RAX, Const 0x7L) ]
+    @ [ ICmp (Reg RAX, Const tuple_tag) ]
+    @ [ IJne (Label not_tuple_label) ]
+    (* It's a tuple, check size *)
+    @ [ IMov (Reg RAX, Reg RSI) ]  (* restore value *)
+    @ [ ISub (Reg RAX, Const tuple_tag) ]  (* remove tag to get actual pointer *)
+    @ [ IMov (Reg RAX, RegOffset (0, RAX)) ]  (* load actual size (as snake num) *)
+    @ [ ICmp (Reg RAX, Reg RDX) ]  (* compare sizes *)
+    @ [ IMov (Reg RAX, const_true) ]
+    @ [ IJe (Label done_label) ]
+    @ [ IMov (Reg RAX, const_false) ]
+    @ [ IJmp (Label done_label) ]
+    @ [ ILabel not_tuple_label ]
+    @ [ IMov (Reg RAX, const_false) ]  (* not a tuple, return false *)
+    @ [ ILabel done_label ]
   | Plus ->
     compile_imm e1 funname env
     @ check_is_number err_ARITH_NOT_NUM
@@ -1178,10 +1369,12 @@ and compile_prim2
     @ [ IMov (Reg RAX, const_false) ]
     @ [ ILabel leq_label ]
   | Eq ->
+    (* Use a callee-saved register (RBX) to preserve first operand across compile_imm *)
     compile_imm e1 funname env
-    @ [ IMov (Reg RDI, Reg RAX) ]
+    @ [ IPush (Reg RAX) ]  (* Save first operand on stack *)
     @ compile_imm e2 funname env
     @ [ IMov (Reg RSI, Reg RAX) ]
+    @ [ IPop (Reg RDI) ]   (* Restore first operand to RDI *)
     @ [ ICall (Label "?equal") ]
 
 and compile_cexpr
@@ -1458,6 +1651,7 @@ and compile_imm (e : tag immexpr) (funname : string) (env : naive_stack_env)
   | ImmBool (false, _) -> [ IMov (Reg RAX, const_false) ]
   | ImmId (x, _) -> [ IMov (Reg RAX, lookup funname x env) ]
   | ImmNil _ -> [ IMov (Reg RAX, const_nil) ]
+  | ImmString (s, tag) -> compile_string s tag
 
 and args_help args regs =
   match args, regs with
@@ -1658,6 +1852,6 @@ let compile_to_string ?(no_builtins = false) (prog : sourcespan program pipeline
   |> add_phase tagged tag
   |> add_phase renamed rename_and_tag
   |> add_phase anfed (fun p -> atag (anf p))
-  |> add_phase locate_bindings naive_stack_allocation
+  |> add_phase locate_bindings register_allocation
   |> add_phase result compile_prog
 ;;

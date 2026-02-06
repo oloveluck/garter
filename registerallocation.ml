@@ -39,6 +39,7 @@ and cached_fvs_I (i : (tag * StringSet.t) immexpr) : StringSet.t =
   | ImmNum (_, (_, f)) -> f
   | ImmId (_, (_, f)) -> f
   | ImmNil _ -> StringSet.empty
+  | ImmString _ -> StringSet.empty
 ;;
 
 let add_fvs_edge (fvs : StringSet.t) : grapht =
@@ -52,21 +53,28 @@ let add_fvs_edge (fvs : StringSet.t) : grapht =
 let interfere (e : (tag * StringSet.t) aexpr) (live : StringSet.t) : grapht =
   let rec helpA (e : (tag * StringSet.t) aexpr) (live : StringSet.t) : grapht =
     match e with
-    | ALet (name, value, body, (_, fvs)) ->
-      let body_fvs = StringSet.union live fvs in
-      let value_graph = helpC value body_fvs in
-      let body_graph = helpA body body_fvs in
+    | ALet (name, value, body, (_, _fvs)) ->
+      (* Get live variables in the body - these are what interfere with 'name' *)
+      (* We need the body's free vars PLUS incoming live vars *)
+      let body_live = StringSet.union live (cached_fvs_A body) in
+      eprintf "ALet %s: body_live = {%s}\n" name (String.concat ", " (StringSet.elements body_live));
+      (* name interferes with everything live in the body *)
+      let value_graph = helpC value body_live in
+      let body_graph = helpA body body_live in
       let fvs_edges =
         List.fold_right
           (fun fv graph -> add_edge graph fv name)
-          (StringSet.elements body_fvs)
-          (add_edge body_graph name name)
+          (StringSet.elements body_live)
+          body_graph
       in
-      let final_graph = graph_merge value_graph fvs_edges in
-      debug_printf "\nfinal graph for %s %s\n" name (string_of_graph final_graph);
+      (* Also need to add name as a node even if it has no edges *)
+      let fvs_edges_with_name = add_node fvs_edges name in
+      let final_graph = graph_merge value_graph fvs_edges_with_name in
+      eprintf "ALet %s final graph: %s\n" name (string_of_graph final_graph);
       final_graph
     | ALetRec (bindings, body, (_, _)) ->
       let binding_names = List.map (fun (n, _) -> n) bindings in
+      eprintf "ALetRec bindings: %s\n" (String.concat ", " binding_names);
       let lambda_fvs =
         List.fold_right
           (fun set sets -> StringSet.union set sets)
@@ -93,6 +101,7 @@ let interfere (e : (tag * StringSet.t) aexpr) (live : StringSet.t) : grapht =
           binding_names
           xs_to_frees
       in
+      eprintf "ALetRec graph (xs_to_xs): %s\n" (string_of_graph xs_to_xs);
       graph_merge (helpA body live) xs_to_xs
     | ACExpr c -> helpC c live
     | ASeq (c, a, _) ->
@@ -186,12 +195,12 @@ let color_graph (g : grapht) : arg name_envt =
     let reg_length = List.length our_regs in
     if num < reg_length
     then List.nth our_regs num
-    else RegOffset (num - (reg_length * 8), RBP)
+    else RegOffset (~-((num - reg_length + 1) * 8), RBP)
   and color_map_to_env (color_map : color_mapping) : arg name_envt =
     let args_map = StringMap.map (fun color -> num_to_arg color) color_map in
     StringMap.fold (fun key value acc -> (key, value) :: acc) args_map []
   in
-  let worklist = get_worklist g [] in
+  let worklist = List.rev (get_worklist g []) in
   debug_printf "\nworklist: %s\n for graph: %s \n" (dump worklist) (string_of_graph g);
   let colored = color_help worklist StringMap.empty in
   let env = color_map_to_env colored in
@@ -247,15 +256,25 @@ let rec allocate_A
     allocate_A a env1 funname
   | ALetRec (bindings, body, (_, _)) ->
     (*add name to fun's env at rbp+16*)
-    let interfered = interfere expr StringSet.empty in
-    debug_printf "\n aletrec graph: %s\n" (string_of_graph interfered);
-    let outer_env = color_graph interfered in
-    debug_printf "\n aletrec env: %s\n" (dump outer_env);
+    (* For closure#0, the main entry point already allocated stack slots for all
+       bindings. Don't overwrite them with color_graph results. *)
+    let merged_env =
+      if funname = "closure#0" then
+        env  (* Keep the pre-computed stack allocations *)
+      else begin
+        let interfered = interfere expr StringSet.empty in
+        debug_printf "\n aletrec graph: %s\n" (string_of_graph interfered);
+        let outer_env = color_graph interfered in
+        debug_printf "\n aletrec env: %s\n" (dump outer_env);
+        (* Merge the new allocations into the current function's env *)
+        add_or_replace_env funname outer_env env
+      end
+    in
     let lambda_envs =
       List.fold_right
         (fun (_, lambda) acc -> allocate_C lambda acc funname)
         bindings
-        [ funname, outer_env ]
+        merged_env
     in
     let lambda_envs_with_recs =
       List.fold_right
@@ -270,7 +289,26 @@ let rec allocate_A
         bindings
         lambda_envs
     in
-    lambda_envs_with_recs
+    (* Also allocate body *)
+    allocate_A body lambda_envs_with_recs funname
+
+and add_or_replace_env
+    (funname : string)
+    (new_bindings : arg name_envt)
+    (env : arg name_envt name_envt)
+    : arg name_envt name_envt
+  =
+  (* Add or merge new_bindings into funname's environment *)
+  let exists = List.exists (fun (f, _) -> f = funname) env in
+  if exists then
+    List.map
+      (fun (ename, env2) ->
+        if ename = funname
+        then ename, List.fold_right (fun (n, v) e -> add_or_replace_help n v e) new_bindings env2
+        else ename, env2)
+      env
+  else
+    (funname, new_bindings) :: env
 
 and add_or_replace_arg
     (funname : string)
@@ -278,12 +316,16 @@ and add_or_replace_arg
     (newvalue : arg)
     (env : arg name_envt name_envt)
   =
-  List.map
-    (fun (ename, env2) ->
-      if ename = funname
-      then ename, add_or_replace_help argname newvalue env2
-      else ename, env2)
-    env
+  let exists = List.exists (fun (f, _) -> f = funname) env in
+  if exists then
+    List.map
+      (fun (ename, env2) ->
+        if ename = funname
+        then ename, add_or_replace_help argname newvalue env2
+        else ename, env2)
+      env
+  else
+    (funname, [(argname, newvalue)]) :: env
 
 and add_or_replace_help (argname : string) (newvalue : arg) (env : arg name_envt)
     : arg name_envt
@@ -305,27 +347,73 @@ and allocate_C
   | CLambda (binds, body, (tag, fvs)) ->
     let new_name = sprintf "closure#%d" tag in
     debug_printf "\nbegin closure: %s\n" new_name;
-    let interfered_body =
-      graph_merge (add_fvs_edge fvs) (interfere body StringSet.empty)
-    in
-    debug_printf "\n%s clambda full graph: \n%s\n" new_name (string_of_graph interfered_body);
-    let new_env = color_graph interfered_body in
+    let fvs_list = StringSet.elements fvs in
+    let num_fvs = List.length fvs_list in
+    (* Free variables have FIXED stack slots at [RBP-8], [RBP-16], etc.
+       because compile.ml loads them there from the closure.
+       So we DON'T include them in register allocation - just assign fixed slots. *)
+    let fvs_env = List.mapi (fun i fv ->
+      (fv, RegOffset (~-8 * (i + 1), RBP))) fvs_list in
+    (* Build interference graph for body, excluding free variables *)
+    let interfered_body = interfere body StringSet.empty in
+    (* Remove free variables from the graph - they have fixed locations *)
+    let interfered_body_no_fvs =
+      List.fold_right (fun fv g -> Graph.remove fv g) fvs_list interfered_body in
+    debug_printf "\n%s clambda graph (no fvs): \n%s\n" new_name (string_of_graph interfered_body_no_fvs);
+    (* Color the remaining variables - these need slots AFTER the free variable slots *)
+    let colored =
+      if Graph.is_empty interfered_body_no_fvs then []
+      else color_graph interfered_body_no_fvs in
+    debug_printf "\n colored env (before offset): %s\n" (dump colored);
+    (* Offset any stack allocations by the number of free variable slots *)
+    let adjusted_env = List.map (fun (name, arg) ->
+      match arg with
+      | RegOffset (offset, RBP) when offset < 0 ->
+        (* Stack slot - offset it by num_fvs slots *)
+        (name, RegOffset (offset - (num_fvs * 8), RBP))
+      | _ -> (name, arg)
+    ) colored in
+    debug_printf "\n adjusted env: %s\n" (dump adjusted_env);
+    (* Combine: fvs_env + adjusted_env *)
+    let new_env = fvs_env @ adjusted_env in
     debug_printf "\n new env: %s\n" (dump new_env);
     let args_env = List.mapi (fun i a -> a, RegOffset (word_size * (i + 3), RBP)) binds in
     let final_env =
       List.fold_right
         (fun (name, value) env -> add_or_replace_arg new_name name value env)
         args_env
-        (allocate_A body ([ new_name, new_env ] @ env) funname)
+        (allocate_A body ([ new_name, new_env ] @ env) new_name)
     in
     debug_printf "\n clambda final env: %s\n" (dump final_env);
     final_env
+  | CIf (_, thn, els, _) ->
+    let thn_env = allocate_A thn env funname in
+    allocate_A els thn_env funname
   | _ -> env
 ;;
 
 let register_allocation (prog : tag aprogram) : tag aprogram * arg name_envt name_envt =
   match prog with
-  | AProgram (expr, tag) ->
-    let exp_envt = allocate_C (cache_C (CLambda ([], expr, 0))) [] "closure#0" in
-    AProgram (expr, tag), exp_envt
+  | AProgram (expr, prog_tag) ->
+    (* For closure#0, use simple sequential stack allocation (like naive)
+       because all bindings may be stored in closures and accessed later.
+       For inner lambdas, we can use register allocation. *)
+    let cached_expr = cache_A expr in
+    (* Use naive-style sequential allocation for the main expression *)
+    let rec allocate_main expr si =
+      match expr with
+      | ALet (name, value, body, _) ->
+        let slot = RegOffset (~-si * 8, RBP) in
+        (name, slot) :: allocate_main body (si + 1)
+      | ALetRec (bindings, body, _) ->
+        let binding_slots = List.mapi (fun i (name, _) ->
+          (name, RegOffset (~-(si + i) * 8, RBP))) bindings in
+        binding_slots @ allocate_main body (si + List.length bindings)
+      | ASeq (_, rest, _) -> allocate_main rest si
+      | ACExpr _ -> []
+    in
+    let outer_env = allocate_main cached_expr 1 in
+    (* Allocate for nested lambdas using register allocation *)
+    let exp_envt = allocate_A cached_expr [ "closure#0", outer_env ] "closure#0" in
+    AProgram (expr, prog_tag), exp_envt
 ;;

@@ -88,6 +88,7 @@ and string_of_expr_with (depth : int) (print_a : 'a -> string) (e : 'a expr) : s
   | ESetItem(e, idx, newval, a) -> sprintf "%s[%s] := %s %s" (string_of_expr e) (string_of_expr idx) (string_of_expr newval) (print_a a)
   | ENumber(n, a) -> (Int64.to_string n) ^ (print_a a)
   | EBool(b, a) -> (string_of_bool b) ^ (print_a a)
+  | EString(s, a) -> "\"" ^ (String.escaped s) ^ "\"" ^ (print_a a)
   | ENil a -> "nil " ^ (print_a a)
   | EId(x, a) -> x ^ (print_a a)
   | EPrim1(op, e, a) ->
@@ -114,6 +115,19 @@ and string_of_expr_with (depth : int) (print_a : 'a -> string) (e : 'a expr) : s
      let binds_strs = List.map string_of_bind binds in
      let binds_str = List.fold_left (^) "" (intersperse binds_strs ", ") in
      sprintf "(lam(%s) %s)%s" binds_str (string_of_expr body) (print_a a)
+  | EMatch(scrutinee, cases, a) ->
+     let case_strs = List.map (fun (p, e) -> sprintf "| %s => %s" (string_of_pattern_with depth print_a p) (string_of_expr e)) cases in
+     sprintf "(match %s: %s)%s" (string_of_expr scrutinee) (String.concat " " case_strs) (print_a a)
+
+and string_of_pattern_with (depth : int) (print_a : 'a -> string) (p : 'a pattern) : string =
+  match p with
+  | PWild a -> "_" ^ (print_a a)
+  | PVar(x, a) -> x ^ (print_a a)
+  | PTuple(pats, a) -> "(" ^ (ExtString.String.join ", " (List.map (string_of_pattern_with depth print_a) pats)) ^ ")" ^ (print_a a)
+  | PNum(n, a) -> (Int64.to_string n) ^ (print_a a)
+  | PBool(b, a) -> (string_of_bool b) ^ (print_a a)
+  | PString(s, a) -> "\"" ^ (String.escaped s) ^ "\"" ^ (print_a a)
+  | PNil a -> "nil" ^ (print_a a)
 
 let string_of_expr (e : 'a expr) : string =
   string_of_expr_with 1000 (fun _ -> "") e
@@ -186,6 +200,7 @@ and string_of_immexpr_with (print_a : 'a -> string) (i : 'a immexpr) : string =
   | ImmNum(n, a) -> (Int64.to_string n) ^ (print_a a)
   | ImmBool(b, a) -> (string_of_bool b) ^ (print_a a)
   | ImmId(x, a) -> x ^ (print_a a)
+  | ImmString(s, a) -> "\"" ^ (String.escaped s) ^ "\"" ^ (print_a a)
 and string_of_aprogram_with (depth : int) (print_a : 'a -> string) (p : 'a aprogram) : string =
   match p with
   | AProgram(body, a) ->
@@ -273,6 +288,10 @@ let rec format_expr (fmt : Format.formatter) (print_a : 'a -> string) (e : 'a ex
      close_paren fmt
   | ENil a ->
      open_label fmt "ENil" (print_a a); close_paren fmt
+  | EString(s, a) ->
+     open_label fmt "EString" (print_a a);
+     pp_print_string fmt (quote (String.escaped s));
+     close_paren fmt
   | EId(x, a) ->
      open_label fmt "EId" (print_a a);
      pp_print_string fmt (quote x);
@@ -330,6 +349,30 @@ let rec format_expr (fmt : Format.formatter) (print_a : 'a -> string) (e : 'a ex
      pp_print_string fmt ":"; pp_print_space fmt ();
      help body;
      close_paren fmt
+  | EMatch(scrutinee, cases, a) ->
+     open_label fmt "EMatch" (print_a a);
+     help scrutinee;
+     print_comma_sep fmt;
+     print_list fmt (fun fmt (p, e) ->
+       open_paren fmt;
+       format_pattern fmt print_a p;
+       pp_print_string fmt " => ";
+       help e;
+       close_paren fmt) cases print_comma_sep;
+     close_paren fmt
+and format_pattern (fmt : Format.formatter) (print_a : 'a -> string) (p : 'a pattern) : unit =
+  match p with
+  | PWild a -> pp_print_string fmt "_"; pp_print_string fmt (maybe_angle (print_a a))
+  | PVar(x, a) -> pp_print_string fmt x; pp_print_string fmt (maybe_angle (print_a a))
+  | PTuple(pats, a) ->
+     open_paren fmt;
+     print_list fmt (fun fmt -> format_pattern fmt print_a) pats print_comma_sep;
+     close_paren fmt;
+     pp_print_string fmt (maybe_angle (print_a a))
+  | PNum(n, a) -> pp_print_string fmt (Int64.to_string n); pp_print_string fmt (maybe_angle (print_a a))
+  | PBool(b, a) -> pp_print_bool fmt b; pp_print_string fmt (maybe_angle (print_a a))
+  | PString(s, a) -> pp_print_string fmt (quote (String.escaped s)); pp_print_string fmt (maybe_angle (print_a a))
+  | PNil a -> pp_print_string fmt "nil"; pp_print_string fmt (maybe_angle (print_a a))
 ;;
 let format_decl (fmt : Format.formatter) (print_a : 'a -> string) (d : 'a decl) : unit =
   match d with

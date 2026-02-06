@@ -1,0 +1,39 @@
+def respond(msg):
+  match msg:
+    | "hello" => "Hi there!"
+    | "bye" => "Goodbye!"
+    | "thanks" => "You're welcome!"
+    | _ => "I don't understand"
+
+def print_all(l):
+  match l:
+    | nil => nil
+    | (h, t) =>
+      print(h);
+      print_all(t)
+
+print("Hello, World!");
+
+let greeting = "Welcome" in
+let name = "Garter" in
+print(greeting);
+print(name);
+
+print(respond("hello"));
+print(respond("bye"));
+print(respond("thanks"));
+print(respond("xyz"));
+
+let messages = ("hello", ("world", ("!", nil))) in
+
+print("Printing list of strings:");
+print_all(messages);
+
+let person = ("Alice", (25, "Engineer")) in
+match person:
+  | (pname, (age, job)) =>
+    print(pname);
+    print(age);
+    print(job);
+    "done"
+  | _ => "error"

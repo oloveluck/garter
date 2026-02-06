@@ -12,11 +12,35 @@ let add = (lambda (m): (lambda (n):
 let mult = (lambda (m): (lambda (n):
   (lambda (f): m(n(f))))) in
 
-let inc = (lambda (x): add1(x)) in
+let exp = (lambda (m): (lambda (n): n(m))) in
+
+let inc = (lambda (x): x + 1) in
 let to_int = (lambda (n): n(inc)(0)) in
 
 let four = succ(three) in
 let five = add(two)(three) in
 let six = mult(two)(three) in
+let eight = exp(two)(three) in
+let nine = mult(three)(three) in
 
-(to_int(zero), to_int(three), to_int(four), to_int(five), to_int(six))
+print("Church numerals:");
+print("zero =");
+print(to_int(zero));
+print("one =");
+print(to_int(one));
+print("two =");
+print(to_int(two));
+print("three =");
+print(to_int(three));
+print("four = succ(three) =");
+print(to_int(four));
+print("five = add(two)(three) =");
+print(to_int(five));
+print("six = mult(two)(three) =");
+print(to_int(six));
+print("eight = exp(two)(three) = 2^3 =");
+print(to_int(eight));
+print("nine = mult(three)(three) =");
+print(to_int(nine));
+
+(to_int(zero), to_int(three), to_int(five), to_int(six), to_int(eight))

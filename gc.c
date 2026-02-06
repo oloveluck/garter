@@ -8,8 +8,10 @@ void printHelp(FILE* out, SNAKEVAL val);
 extern uint64_t NUM_TAG_MASK;
 extern uint64_t CLOSURE_TAG_MASK;
 extern uint64_t TUPLE_TAG_MASK;
+extern uint64_t STRING_TAG_MASK;
 extern uint64_t CLOSURE_TAG;
 extern uint64_t TUPLE_TAG;
+extern uint64_t STRING_TAG;
 extern uint64_t NIL;
 extern uint64_t tupleCounter;
 extern uint64_t* STACK_BOTTOM;
@@ -84,6 +86,35 @@ uint64_t* copy_if_needed(uint64_t* garter_val_addr, uint64_t* heap_top) {
     return heap_top + words + (words % 2);
   }
 
+  // Check if string (tag 0x3)
+  if ((val & 0x7) == STRING_TAG) {
+    uint64_t* old_addr = (uint64_t*)(val - STRING_TAG);
+    uint64_t first_word = old_addr[0];
+
+    // Check if already forwarded (forwarding pointer has low bit set)
+    if (first_word & 0x1) {
+      *garter_val_addr = (first_word - 1) | STRING_TAG;
+      return heap_top;
+    }
+
+    // String layout: [length, chars...]
+    uint64_t len = first_word;
+    uint64_t char_words = (len + 7) / 8;
+    uint64_t words = 1 + char_words;  // length + char words
+    for (uint64_t i = 0; i < words; i++) {
+      heap_top[i] = old_addr[i];
+    }
+
+    // Install forwarding pointer
+    old_addr[0] = ((uint64_t)heap_top) | 0x1;
+
+    // Update the reference
+    *garter_val_addr = ((uint64_t)heap_top) | STRING_TAG;
+
+    // Advance (16-byte aligned)
+    return heap_top + words + (words % 2);
+  }
+
   // Check if closure (tag 0x5)
   if ((val & 0x7) == CLOSURE_TAG) {
     uint64_t* old_addr = (uint64_t*)(val - CLOSURE_TAG);
@@ -154,41 +185,57 @@ uint64_t* gc(uint64_t* bottom_frame, uint64_t* top_frame, uint64_t* top_stack, u
   } while (old_top_frame < bottom_frame); // Use the old stack frame to decide if there's more GC'ing to do
 
   // Phase 2: Cheney scan - scan copied objects and copy their children
+  // We need to identify object types. Since objects are tagged on the stack,
+  // we need a different approach for the to-space scan.
+  //
+  // We'll use a marker in the header to distinguish object types during GC.
+  // But for now, use heuristics based on the header values:
+  // - String: first_word is length (raw number, typically small)
+  // - Tuple: first_word = length*2 (even)
+  // - Closure: first_word = arity<<2 (multiple of 4), second_word is code ptr
+  //
+  // The key insight: closures have code pointers that are outside the heap.
+  // Strings have raw character data that won't look like valid pointers.
+
   while (scan_ptr < alloc_ptr) {
     uint64_t first_word = scan_ptr[0];
 
-    // Determine object type from header
-    // Tuple: first_word = length*2 (even, could be 2, 4, 6, 8, ...)
-    // Closure: first_word = arity<<2 (multiple of 4: 0, 4, 8, 12, ...)
-    //
-    // Distinguishing criterion:
-    // - If first_word % 4 == 2, it's definitely a tuple (odd-length tuple)
-    // - If first_word % 4 == 0, check second word:
-    //   - Closure: second word is a code pointer (8-byte aligned, high address > heap)
-    //   - Tuple: second word is a Garter value (will have tag bits or be in heap range)
-    //
-    // Better heuristic: check if second word is in the from-space or to-space range
-    // If not, it's likely a code pointer (closure).
-
+    // Check if this is a closure by looking at the second word
     int is_closure = 0;
+    int is_string = 0;
+
     if ((first_word & 0x3) == 0) {
       // Could be closure (arity*4) or even-length tuple (len*2 where len is even)
       uint64_t second_word = scan_ptr[1];
 
       // Code pointers are not in heap memory
-      // If second_word is outside both from-space and to-space, it's a code pointer
       int in_from_space = (second_word >= (uint64_t)FROM_S && second_word < (uint64_t)FROM_E);
       int in_to_space = (second_word >= (uint64_t)TO_S && second_word < (uint64_t)TO_E);
+      int looks_like_garter_heap_val = ((second_word & 0x7) == 1 || (second_word & 0x7) == 5 || (second_word & 0x7) == 3);
 
-      // Also check: Garter values have tags in low bits, code pointers are 8-byte aligned
-      // Code pointers won't have tag patterns (1 for tuple, 5 for closure)
-      int looks_like_garter_heap_val = ((second_word & 0x7) == 1 || (second_word & 0x7) == 5);
-
-      // If second_word looks like a code pointer (not in heap, high address)
+      // If second_word looks like a code pointer (not in heap, high address, 8-byte aligned)
       if (!in_from_space && !in_to_space && !looks_like_garter_heap_val &&
-          second_word > 0x100000000UL) {
+          second_word > 0x100000000UL && (second_word & 0x7) == 0) {
         is_closure = 1;
       }
+    }
+
+    // Detect string: if first_word is odd and not too large, it might be a string length
+    // But actually strings have raw length (no encoding), so any odd first_word
+    // indicates it's probably not a tuple (which encodes length*2)
+    // However, we need to be careful - we need to track object types during copy.
+    // For now, assume strings won't have pointers and we just need to skip them.
+    // Strings have character data that won't look like valid tagged heap pointers.
+
+    // Check if first_word is odd (not a tuple, not a closure with arity*4)
+    if ((first_word & 0x1) && first_word <= 1000000) {
+      // Likely a string - strings have raw length in first word
+      // Calculate size and skip
+      uint64_t len = first_word;
+      uint64_t char_words = (len + 7) / 8;
+      uint64_t words = 1 + char_words;
+      scan_ptr += words + (words % 2);
+      continue;
     }
 
     if (is_closure) {

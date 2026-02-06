@@ -8,7 +8,8 @@ let tok_span(start, endtok) = (Parsing.rhs_start_pos start, Parsing.rhs_end_pos 
 
 %token <int64> NUM
 %token <string> ID
-%token DEF ANDDEF ADD1 SUB1 LPARENSPACE LPARENNOSPACE RPAREN LBRACK RBRACK LET IN EQUAL COMMA PLUS MINUS TIMES IF COLON ELSECOLON EOF PRINT PRINTSTACK TRUE FALSE ISBOOL ISNUM ISTUPLE EQEQ LESSSPACE GREATER LESSEQ GREATEREQ AND OR NOT COLONEQ SEMI NIL LAMBDA BEGIN END SHADOW REC UNDERSCORE
+%token <string> STRING
+%token DEF ANDDEF ADD1 SUB1 LPARENSPACE LPARENNOSPACE RPAREN LBRACK RBRACK LET IN EQUAL COMMA PLUS MINUS TIMES IF COLON ELSECOLON EOF PRINT PRINTSTACK TRUE FALSE ISBOOL ISNUM ISTUPLE EQEQ LESSSPACE GREATER LESSEQ GREATEREQ AND OR NOT COLONEQ SEMI NIL LAMBDA BEGIN END SHADOW REC UNDERSCORE MATCH ARROW BAR
 
 %right SEMI
 %left COLON COLONEQ
@@ -27,6 +28,7 @@ const :
   | TRUE { EBool(true, full_span()) }
   | FALSE { EBool(false, full_span()) }
   | NIL %prec SEMI { ENil(full_span()) }
+  | STRING { EString($1, full_span()) }
 
 prim1 :
   | ADD1 { Add1 }
@@ -50,9 +52,36 @@ expr :
   | LET bindings IN expr { ELet($2, $4, full_span()) }
   | LET REC namebindings IN expr { ELetRec($3, $5, full_span()) }
   | IF expr COLON expr ELSECOLON expr { EIf($2, $4, $6, full_span()) }
+  | MATCH expr COLON match_cases { EMatch($2, $4, full_span()) }
   | BEGIN expr END { $2 }
   | binop_expr SEMI expr { ESeq($1, $3, full_span()) }
   | binop_expr { $1 }
+
+match_cases :
+  | match_case { [$1] }
+  | match_case match_cases { $1 :: $2 }
+
+match_case :
+  | BAR pattern ARROW expr { ($2, $4) }
+
+pattern :
+  | UNDERSCORE { PWild(full_span()) }
+  | ID { PVar($1, full_span()) }
+  | NUM { PNum($1, full_span()) }
+  | TRUE { PBool(true, full_span()) }
+  | FALSE { PBool(false, full_span()) }
+  | STRING { PString($1, full_span()) }
+  | NIL { PNil(full_span()) }
+  | LPARENNOSPACE RPAREN { PTuple([], full_span()) }
+  | LPARENSPACE RPAREN { PTuple([], full_span()) }
+  | LPARENNOSPACE pattern COMMA RPAREN { PTuple([$2], full_span()) }
+  | LPARENSPACE pattern COMMA RPAREN { PTuple([$2], full_span()) }
+  | LPARENNOSPACE pattern COMMA patterns RPAREN { PTuple($2::$4, full_span()) }
+  | LPARENSPACE pattern COMMA patterns RPAREN { PTuple($2::$4, full_span()) }
+
+patterns :
+  | pattern { [$1] }
+  | pattern COMMA patterns { $1 :: $3 }
 
 exprs :
   | expr { [$1] }

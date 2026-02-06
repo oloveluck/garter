@@ -1,10 +1,37 @@
 def size(t):
-  if t == nil: 0
-  else: 1 + size(t[1]) + size(t[2])
+  match t:
+    | nil => 0
+    | (v, l, r) => 1 + size(l) + size(r)
 
 def sum_tree(t):
-  if t == nil: 0
-  else: t[0] + sum_tree(t[1]) + sum_tree(t[2])
+  match t:
+    | nil => 0
+    | (v, l, r) => v + sum_tree(l) + sum_tree(r)
+
+def max(a, b): if a > b: a else: b
+
+def height(t):
+  match t:
+    | nil => 0
+    | (v, l, r) => 1 + max(height(l), height(r))
+
+def contains(t, x):
+  match t:
+    | nil => false
+    | (v, l, r) =>
+      if x == v: true
+      else: if contains(l, x): true
+      else: contains(r, x)
+
+def append(l1, l2):
+  match l1:
+    | nil => l2
+    | (h, t) => (h, append(t, l2))
+
+def inorder(t):
+  match t:
+    | nil => nil
+    | (v, l, r) => append(inorder(l), (v, inorder(r)))
 
 let tree =
   (4,
@@ -12,7 +39,16 @@ let tree =
     (6, (5, nil, nil), (7, nil, nil)))
 in
 
-(
-  size(tree),
-  sum_tree(tree)
-)
+print("Binary tree demo");
+print("Size:");
+print(size(tree));
+print("Sum:");
+print(sum_tree(tree));
+print("Height:");
+print(height(tree));
+print("Contains 5?");
+print(contains(tree, 5));
+print("Contains 9?");
+print(contains(tree, 9));
+print("Inorder traversal:");
+inorder(tree)

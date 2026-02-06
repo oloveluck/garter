@@ -6,12 +6,32 @@ let Y = (lambda (f): make_Y_arg(f)) in
 
 let factorial = Y((lambda (fact):
   (lambda (n):
-    if n < 2: 1
-    else: n * fact(n - 1)))) in
+    match n:
+      | 0 => 1
+      | 1 => 1
+      | _ => n * fact(n - 1)))) in
 
 let fibonacci = Y((lambda (fib):
   (lambda (n):
-    if n < 2: n
-    else: fib(n - 1) + fib(n - 2)))) in
+    match n:
+      | 0 => 0
+      | 1 => 1
+      | _ => fib(n - 1) + fib(n - 2)))) in
+
+let list_length = Y((lambda (len):
+  (lambda (l):
+    match l:
+      | nil => 0
+      | (h, t) => 1 + len(t)))) in
+
+print("Y Combinator examples:");
+print("factorial(6) =");
+print(factorial(6));
+print("fibonacci(10) =");
+print(fibonacci(10));
+
+let mylist = (1, (2, (3, (4, (5, nil))))) in
+print("length of (1,2,3,4,5) =");
+print(list_length(mylist));
 
 (factorial(6), fibonacci(10))

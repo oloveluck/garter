@@ -1,1 +1,39 @@
-5
+def square(n):
+  n * n
+
+def describe(x):
+  match x:
+    | 0 => "zero"
+    | 1 => "one"
+    | _ => "something else"
+
+print("Basic arithmetic:");
+print(1 + 2 * 3);
+print((1 + 2) * 3);
+
+let x = 10 in
+let y = 20 in
+print("x + y =");
+print(x + y);
+
+let max = (lambda (a, b): if a > b: a else: b) in
+print("max(5, 3) =");
+print(max(5, 3));
+
+print("square(7) =");
+print(square(7));
+
+let point = (3, 4) in
+print("point:");
+print(point);
+print("point[0]:");
+print(point[0]);
+print("point[1]:");
+print(point[1]);
+
+print("describe(0):");
+print(describe(0));
+print("describe(1):");
+print(describe(1));
+print("describe(42):");
+describe(42)

@@ -1,0 +1,63 @@
+def list_head(l):
+  match l:
+    | nil => "empty"
+    | (h, t) => h
+
+def list_second(l):
+  match l:
+    | nil => "no elements"
+    | (h, nil) => "only one element"
+    | (h1, (h2, t)) => h2
+
+def sum_matrix_2x2(m):
+  match m:
+    | ((a, b), (c, d)) => a + b + c + d
+    | _ => -1
+
+def map_option(f, opt):
+  match opt:
+    | (true, x) => (true, f(x))
+    | (false, _) => (false, nil)
+    | _ => (false, nil)
+
+def get_or_else(opt, default):
+  match opt:
+    | (true, x) => x
+    | _ => default
+
+def safe_sub(a, b):
+  if b > a: ("err", "would be negative")
+  else: ("ok", a - b)
+
+def unwrap_result(r):
+  match r:
+    | ("ok", v) => v
+    | ("err", e) =>
+      print("Error:");
+      print(e);
+      -999
+
+print("Pattern matching examples");
+
+let mylist = (1, (2, (3, nil))) in
+print("list_head:");
+print(list_head(mylist));
+print("list_second:");
+print(list_second(mylist));
+
+let matrix = ((1, 2), (3, 4)) in
+print("sum_matrix_2x2:");
+print(sum_matrix_2x2(matrix));
+
+let some5 = (true, 5) in
+let none = (false, nil) in
+let double = (lambda (x): x * 2) in
+print("map_option (Some 5) double:");
+print(map_option(double, some5));
+print("get_or_else None 0:");
+print(get_or_else(none, 0));
+
+print("safe_sub 10 2:");
+print(unwrap_result(safe_sub(10, 2)));
+print("safe_sub 2 10:");
+unwrap_result(safe_sub(2, 10))

@@ -34,6 +34,15 @@ type prim2 =
   | Eq
   | CheckSize
 
+and 'a pattern =
+  | PWild of 'a
+  | PVar of string * 'a
+  | PTuple of 'a pattern list * 'a
+  | PNum of int64 * 'a
+  | PBool of bool * 'a
+  | PString of string * 'a
+  | PNil of 'a
+
 and 'a bind =
   | BBlank of 'a
   | BName of string * bool * 'a
@@ -55,10 +64,12 @@ and 'a expr =
   | ENumber of int64 * 'a
   | EBool of bool * 'a
   | ENil of 'a
+  | EString of string * 'a
   | EId of string * 'a
   | EApp of 'a expr * 'a expr list * call_type * 'a
   | ELambda of 'a bind list * 'a expr * 'a
   | ELetRec of 'a binding list * 'a expr * 'a
+  | EMatch of 'a expr * ('a pattern * 'a expr) list * 'a
 
 type 'a decl =
   | DFun of string * 'a bind list * 'a expr * 'a
@@ -71,6 +82,7 @@ type 'a immexpr = (* immediate expressions *)
   | ImmBool of bool * 'a
   | ImmId of string * 'a
   | ImmNil of 'a
+  | ImmString of string * 'a
 and 'a cexpr = (* compound expressions *)
   | CIf of 'a immexpr * 'a aexpr * 'a aexpr * 'a
   | CPrim1 of prim1 * 'a immexpr * 'a
@@ -104,6 +116,7 @@ let get_tag_E e = match e with
   | ENil t -> t
   | ENumber(_, t) -> t
   | EBool(_, t) -> t
+  | EString(_, t) -> t
   | EId(_, t) -> t
   | EApp(_, _, _, t) -> t
   | ETuple(_, t) -> t
@@ -111,6 +124,7 @@ let get_tag_E e = match e with
   | ESetItem(_, _, _, t) -> t
   | ESeq(_, _, t) -> t
   | ELambda(_, _, t) -> t
+  | EMatch(_, _, t) -> t
 ;;
 
 let get_tag_D d = match d with
@@ -127,6 +141,7 @@ let rec map_tag_E (f : 'a -> 'b) (e : 'a expr) =
   | EId(x, a) -> EId(x, f a)
   | ENumber(n, a) -> ENumber(n, f a)
   | EBool(b, a) -> EBool(b, f a)
+  | EString(s, a) -> EString(s, f a)
   | ENil a -> ENil(f a)
   | EPrim1(op, e, a) ->
      let tag_prim = f a in
@@ -168,6 +183,19 @@ let rec map_tag_E (f : 'a -> 'b) (e : 'a expr) =
   | ELambda(binds, body, a) ->
      let tag_lam = f a in
      ELambda(List.map (map_tag_B f) binds, map_tag_E f body, tag_lam)
+  | EMatch(scrutinee, cases, a) ->
+     let tag_match = f a in
+     let tag_cases = List.map (fun (p, e) -> (map_tag_Pat f p, map_tag_E f e)) cases in
+     EMatch(map_tag_E f scrutinee, tag_cases, tag_match)
+and map_tag_Pat (f : 'a -> 'b) p =
+  match p with
+  | PWild a -> PWild (f a)
+  | PVar(x, a) -> PVar(x, f a)
+  | PTuple(pats, a) -> PTuple(List.map (map_tag_Pat f) pats, f a)
+  | PNum(n, a) -> PNum(n, f a)
+  | PBool(b, a) -> PBool(b, f a)
+  | PString(s, a) -> PString(s, f a)
+  | PNil a -> PNil(f a)
 and map_tag_B (f : 'a -> 'b) b =
   match b with
   | BBlank tag -> BBlank(f tag)
@@ -228,6 +256,7 @@ and untagE e =
   | EId(x, _) -> EId(x, ())
   | ENumber(n, _) -> ENumber(n, ())
   | EBool(b, _) -> EBool(b, ())
+  | EString(s, _) -> EString(s, ())
   | ENil _ -> ENil ()
   | EPrim1(op, e, _) ->
      EPrim1(op, untagE e, ())
@@ -243,6 +272,17 @@ and untagE e =
      ELetRec(List.map (fun (b, e, _) -> (untagB b, untagE e, ())) binds, untagE body, ())
   | ELambda(binds, body, _) ->
      ELambda(List.map untagB binds, untagE body, ())
+  | EMatch(scrutinee, cases, _) ->
+     EMatch(untagE scrutinee, List.map (fun (p, e) -> (untagPat p, untagE e)) cases, ())
+and untagPat p =
+  match p with
+  | PWild _ -> PWild ()
+  | PVar(x, _) -> PVar(x, ())
+  | PTuple(pats, _) -> PTuple(List.map untagPat pats, ())
+  | PNum(n, _) -> PNum(n, ())
+  | PBool(b, _) -> PBool(b, ())
+  | PString(s, _) -> PString(s, ())
+  | PNil _ -> PNil ()
 and untagB b =
   match b with
   | BBlank _ -> BBlank ()
@@ -304,6 +344,7 @@ let atag (p : 'a aprogram) : tag aprogram =
     | ImmId(x, _) -> ImmId(x, tag())
     | ImmNum(n, _) -> ImmNum(n, tag())
     | ImmBool(b, _) -> ImmBool(b, tag())
+    | ImmString(s, _) -> ImmString(s, tag())
   and helpP p =
     match p with
     | AProgram(body, _) ->

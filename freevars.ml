@@ -24,7 +24,7 @@ and fv_A (e : 'a aexpr) : StringSet.t =
 and fv_I (e : 'a immexpr) : StringSet.t =
   match e with
   | ImmId (id, _) -> StringSet.singleton id
-  | _ -> StringSet.empty
+  | ImmNum _ | ImmBool _ | ImmNil _ | ImmString _ -> StringSet.empty
 
 and fv_C (e : 'a cexpr) : StringSet.t =
   match e with
@@ -60,6 +60,7 @@ and cache_I (immexpr : tag immexpr) : (tag * StringSet.t) immexpr =
   | ImmBool (b, tag) -> ImmBool (b, (tag, StringSet.empty))
   | ImmId (id, tag) -> ImmId (id, (tag, fv_I immexpr))
   | ImmNil tag -> ImmNil (tag, StringSet.empty)
+  | ImmString (s, tag) -> ImmString (s, (tag, StringSet.empty))
 
 and cache_C (expr : tag cexpr) : (tag * StringSet.t) cexpr =
   match expr with

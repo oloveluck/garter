@@ -1,0 +1,49 @@
+def length(l):
+  match l:
+    | nil => 0
+    | (h, t) => 1 + length(t)
+
+def sum(l):
+  match l:
+    | nil => 0
+    | (h, t) => h + sum(t)
+
+def append(l1, l2):
+  match l1:
+    | nil => l2
+    | (h, t) => (h, append(t, l2))
+
+def reverse_helper(lst, acc):
+  match lst:
+    | nil => acc
+    | (h, t) => reverse_helper(t, (h, acc))
+
+def reverse(l):
+  reverse_helper(l, nil)
+
+def map(f, l):
+  match l:
+    | nil => nil
+    | (h, t) => (f(h), map(f, t))
+
+def filter(p, l):
+  match l:
+    | nil => nil
+    | (h, t) =>
+      if p(h): (h, filter(p, t))
+      else: filter(p, t)
+
+let mylist = (1, (2, (3, (4, (5, nil))))) in
+let double = (lambda (x): x * 2) in
+
+print("List operations demo");
+print("Original list length:");
+print(length(mylist));
+print("Sum:");
+print(sum(mylist));
+print("Doubled:");
+print(map(double, mylist));
+print("Reversed:");
+print(reverse(mylist));
+print("Appended to itself:");
+append(mylist, mylist)

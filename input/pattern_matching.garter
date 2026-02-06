@@ -1,0 +1,65 @@
+def describe_num(n):
+  match n:
+    | 0 => "zero"
+    | 1 => "one"
+    | 2 => "two"
+    | _ => "many"
+
+def bool_to_str(b):
+  match b:
+    | true => "yes"
+    | false => "no"
+    | _ => "unknown"
+
+def sum_pair(p):
+  match p:
+    | (a, b) => a + b
+    | _ => 0
+
+def sum_triple(t):
+  match t:
+    | (a, b, c) => a + b + c
+    | _ => 0
+
+def extract_deep(x):
+  match x:
+    | ((a, b), (c, d)) => a + b + c + d
+    | _ => -1
+
+def greet(name):
+  match name:
+    | "Alice" => "Hello, Alice!"
+    | "Bob" => "Hey Bob!"
+    | _ => "Hi there!"
+
+def type_of(x):
+  match x:
+    | true => "bool"
+    | false => "bool"
+    | nil => "nil"
+    | (a, b, c) => "triple"
+    | (a, b) => "pair"
+    | _ => "number"
+
+print("Pattern matching examples:");
+
+print(describe_num(0));
+print(describe_num(1));
+print(describe_num(42));
+
+print(bool_to_str(true));
+print(bool_to_str(false));
+
+print(sum_pair((3, 4)));
+print(sum_triple((1, 2, 3)));
+print(extract_deep(((1, 2), (3, 4))));
+
+print(greet("Alice"));
+print(greet("Bob"));
+print(greet("Charlie"));
+
+print(type_of(true));
+print(type_of(nil));
+print(type_of((1, 2)));
+print(type_of((1, 2, 3)));
+type_of(42)

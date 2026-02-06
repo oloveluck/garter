@@ -1,38 +1,51 @@
 def map(f, l):
-  if l == nil: nil
-  else: (f(l[0]), map(f, l[1]))
+  match l:
+    | nil => nil
+    | (h, t) => (f(h), map(f, t))
 
 def filter(p, l):
-  if l == nil: nil
-  else:
-    if p(l[0]): (l[0], filter(p, l[1]))
-    else: filter(p, l[1])
+  match l:
+    | nil => nil
+    | (h, t) =>
+      if p(h): (h, filter(p, t))
+      else: filter(p, t)
 
 def foldl(f, acc, l):
-  if l == nil: acc
-  else: foldl(f, f(acc, l[0]), l[1])
+  match l:
+    | nil => acc
+    | (h, t) => foldl(f, f(acc, h), t)
 
 def foldr(f, acc, l):
-  if l == nil: acc
-  else: f(l[0], foldr(f, acc, l[1]))
+  match l:
+    | nil => acc
+    | (h, t) => f(h, foldr(f, acc, t))
 
 def sum(l): foldl((lambda (a, x): a + x), 0, l)
 def product(l): foldl((lambda (a, x): a * x), 1, l)
 def length(l): foldl((lambda (a, x): a + 1), 0, l)
 def reverse(l): foldl((lambda (a, x): (x, a)), nil, l)
+def append(l1, l2): foldr((lambda (x, a): (x, a)), l2, l1)
+def flatten(ll): foldr(append, nil, ll)
 
 let nums = (1, (2, (3, (4, (5, nil))))) in
-
 let double = (lambda (x): x * 2) in
 let square = (lambda (x): x * x) in
 let gt2 = (lambda (x): x > 2) in
 
-(
-  sum(nums),
-  product(nums),
-  length(nums),
-  sum(map(double, nums)),
-  sum(map(square, nums)),
-  sum(filter(gt2, nums)),
-  reverse(nums)
-)
+print("MapReduce demo");
+print("Sum:");
+print(sum(nums));
+print("Product:");
+print(product(nums));
+print("Length:");
+print(length(nums));
+print("Doubled:");
+print(map(double, nums));
+print("Squared:");
+print(map(square, nums));
+print("Filtered > 2:");
+print(filter(gt2, nums));
+print("Reversed:");
+print(reverse(nums));
+print("Sum of squares:");
+sum(map(square, nums))

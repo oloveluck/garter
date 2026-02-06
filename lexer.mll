@@ -13,6 +13,29 @@ let ignore_new_line lexbuf =
       };
     lexbuf.lex_start_p <- lexbuf.lex_curr_p
 
+(* Unescape a string literal: remove surrounding quotes and process escape sequences *)
+let unescape s =
+  let s = String.sub s 1 (String.length s - 2) in (* Remove surrounding quotes *)
+  let buf = Buffer.create (String.length s) in
+  let rec loop i =
+    if i >= String.length s then Buffer.contents buf
+    else if s.[i] = '\\' && i + 1 < String.length s then begin
+      (match s.[i+1] with
+       | 'n' -> Buffer.add_char buf '\n'
+       | 't' -> Buffer.add_char buf '\t'
+       | 'r' -> Buffer.add_char buf '\r'
+       | '\\' -> Buffer.add_char buf '\\'
+       | '"' -> Buffer.add_char buf '"'
+       | c -> Buffer.add_char buf '\\'; Buffer.add_char buf c);
+      loop (i + 2)
+    end
+    else begin
+      Buffer.add_char buf s.[i];
+      loop (i + 1)
+    end
+  in
+  loop 0
+
 }
 
 let dec_digit = ['0'-'9']
@@ -80,7 +103,11 @@ rule token = parse
   | "end" { END }
   | "rec" { REC }
   | "shadow" { SHADOW }
+  | "match" { MATCH }
+  | "=>" { ARROW }
+  | "|" { BAR }
   | ident as x { if x = "_" then UNDERSCORE else ID x }
+  | '"' ([^'"' '\\'] | '\\' _)* '"' as s { STRING (unescape s) }
   | eof { EOF }
   | _ as c { failwith (sprintf "Unrecognized character: %c" c) }
 
