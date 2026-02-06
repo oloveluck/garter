@@ -1,0 +1,17 @@
+def make_Y_arg(f):
+  let inner = (lambda (x): f((lambda (v): x(x)(v)))) in
+  inner(inner)
+
+let Y = (lambda (f): make_Y_arg(f)) in
+
+let factorial = Y((lambda (fact):
+  (lambda (n):
+    if n < 2: 1
+    else: n * fact(n - 1)))) in
+
+let fibonacci = Y((lambda (fib):
+  (lambda (n):
+    if n < 2: n
+    else: fib(n - 1) + fib(n - 2)))) in
+
+(factorial(6), fibonacci(10))

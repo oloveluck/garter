@@ -60,16 +60,6 @@ let teq name actual expected =
   name >:: fun _ -> assert_equal expected actual ~printer:(fun s -> s)
 ;;
 
-(* let tfvs name program expected = name>:: *)
-(*   (fun _ -> *)
-(*     let ast = parse_string name program in *)
-(*     let anfed = anf (tag ast) in *)
-(*     let vars = free_vars_P anfed [] in *)
-(*     let c = Stdlib.compare in *)
-(*     let str_list_print strs = "[" ^ (ExtString.String.join ", " strs) ^ "]" in *)
-(*     assert_equal (List.sort c vars) (List.sort c expected) ~printer:str_list_print) *)
-(* ;; *)
-
 let builtins_size = 4 (* arity + 0 vars + codeptr + padding *) * 1
 (* TODO FIXME (List.length Compile.native_fun_bindings) *)
 
@@ -203,11 +193,13 @@ let reg_tests =
       "true"
   ; t "add1" "let x = 1 in x + x" "" "2"
   ; t "and2" "true && true" "" "true"
-    (* ; terr "err_high" "let x = (1, 2, 3) in x [3]" "" "Error 8: get high index"
-       ; terr "err_high2" "let x = (1, 2, 3) in x [4]" "" "Error: Error 8: Error: index too large to get, got 3"
-       ; terr "err_low" "let x = (1, 2, 3) in x[-1]" "" "Error 7: get low index"
-       ; terr "err_high3" "let x = () in x [0]" "" "Error 8: Error: index too large to get, got 3"
-       ; terr "err_nil_deref" "let x = nil in x [0]" "" "Error 9: Error: get expected numeric index, got nil" *)
+  (* Tuple bounds checking tests - fixed *)
+  ; terr "err_high" "let x = (1, 2, 3) in x[3]" "" "index too large to get"
+  ; terr "err_low" "let x = (1, 2, 3) in x[-1]" "" "index too small to get"
+  ; terr "err_nil_deref" "let x = nil in x[0]" "" "tried to access component of nil"
+  ; terr "calling_nonfunction1" "4(3)" "" "non-closure"
+  ; terr "calling_nonfunction2" "true(3)" "" "non-closure"
+  ; terr "calling_nonfunction3" "nil(3)" "" "non-closure"
   ; t "destructure" "let (a, b) = (1, 2) in a" "" "1"
   ; t "destructure_2" "let (a, (b, c)) = (1, (2, 3)) in c" "" "3"
   ; (* Some useful if tests to start you off *)
@@ -216,14 +208,7 @@ let reg_tests =
   ; terr "overflow" "add1(5073741823000000000)" "" "overflow"
   ; t "l1" "let add = (lambda (x, y): x + y) in\nadd(5, 6)" "" "11"
   ; t "l2" "let z = 5 in let add = (lambda (x, y): x + y) in\nadd(5, 6)" "" "11"
-    (* ; terr "calling_nonfunction1" "4(3)" "" "some" *)
-    (* ; terr "calling_nonfunction2" "true(3)" "" "some" *)
-    (* ; terr "calling_nonfunction3" "nil(3)" "" "some" *)
-    (* ; terr
-      "function scope"
-      "func(3)"
-      ""
-      "The identifier func, used at <calling_nonfunction, 1:0-1:4>, is not in scope" *)
+  ; terr "arity_mismatch" "(lambda(x): x)(1, 2)" "" "arity mismatch"
   ; t "l3" "let z = 1 in let add = (lambda (x, y): x + y + z) in\nadd(5, 6)" "" "12"
   ; t "fact" "def fact(n): if n < 2: 1 else: n * fact(n - 1)\n\nfact(5)" "" "120"
   ; t "print1" "print(2) + print(3)" "" "2\n3\n5"
@@ -240,9 +225,53 @@ let reg_tests =
        app_to_5(print_a)\n"
       ""
       "5\n5"
+  (* Nested tuples *)
+  ; t "nested_tuple1" "((1, 2), (3, 4))" "" "((1, 2), (3, 4))"
+  ; t "nested_tuple2" "let t = ((1, 2), (3, 4)) in t[0][1]" "" "2"
+  ; t "nested_tuple3" "let t = ((1, 2), (3, 4)) in t[1][0]" "" "3"
+  (* Negative numbers *)
+  ; t "neg1" "-5 + 3" "" "-2"
+  ; t "neg2" "-10" "" "-10"
+  ; t "neg3" "0 - 5" "" "-5"
+  ; t "neg4" "-3 * -4" "" "12"
+  (* Zero handling *)
+  ; t "zero1" "0" "" "0"
+  ; t "zero2" "0 + 0" "" "0"
+  ; t "zero3" "5 * 0" "" "0"
+  ; t "zero4" "0 == 0" "" "true"
+  (* Multiple free variables in closures *)
+  ; t "multi_free1" "let a = 1 in let b = 2 in let c = 3 in let f = (lambda(x): a + b + c) in f(0)" "" "6"
+  ; t "multi_free2" "let x = 10 in let y = 20 in let f = (lambda(z): x + y + z) in f(5)" "" "35"
+  (* Nested lambdas *)
+  ; t "nested_lam1" "let f = (lambda(x): (lambda(y): x + y)) in f(3)(4)" "" "7"
+  ; t "nested_lam2" "let add = (lambda(x): (lambda(y): x + y)) in let add5 = add(5) in add5(10)" "" "15"
+  ; t "nested_lam3" "let f = (lambda(a): (lambda(b): (lambda(c): a + b + c))) in f(1)(2)(3)" "" "6"
+  (* Boolean operations *)
+  ; t "bool1" "true && false" "" "false"
+  ; t "bool2" "true || false" "" "true"
+  ; t "bool3" "!(true)" "" "false"
+  ; t "bool4" "!(false)" "" "true"
+  (* Comparison edge cases *)
+  ; t "cmp1" "0 < 1" "" "true"
+  ; t "cmp2" "0 > 1" "" "false"
+  ; t "cmp3" "5 <= 5" "" "true"
+  ; t "cmp4" "5 >= 5" "" "true"
+  (* Type checking functions *)
+  ; t "isnum_neg" "isnum(-5)" "" "true"
+  ; t "isnum_zero" "isnum(0)" "" "true"
+  ; t "isbool_and" "isbool(true && false)" "" "true"
+  ; t "istuple_nil" "istuple(nil)" "" "false"
+  (* Error: type errors in operations *)
+  ; terr "type_err_plus" "1 + true" "" "arithmetic expected a number"
+  ; terr "type_err_minus" "true - 1" "" "arithmetic expected a number"
+  ; terr "type_err_times" "false * 2" "" "arithmetic expected a number"
+  (* Boolean type checking tests - fixed *)
+  ; terr "type_err_and" "1 && true" "" "logic expected a boolean"
+  ; terr "type_err_or" "false || 5" "" "logic expected a boolean"
+  ; terr "type_err_if" "if 1: 2 else: 3" "" "if expected a boolean"
+  ; terr "type_err_cmp" "1 < true" "" "comparison expected a number"
   ]
 ;;
 
-(* let suite = "unit_tests" >::: pair_tests @ oom @ gc @ input @ reg_tests *)
-let suite = "unit_tests" >::: reg_tests
+let suite = "unit_tests" >::: pair_tests @ reg_tests
 let () = run_test_tt_main ("all_tests" >::: [ suite; input_file_test_suite () ])

@@ -4,7 +4,6 @@ open Exprs
 open ExtLib
 
 let rec find ls x =
-  (* printf "\n %s IN: %s \n" x (dump ls); *)
   match ls with
   | [] -> raise (InternalCompilerError (sprintf "Name %s not found" x))
   | (y, v) :: rest -> if y = x then v else find rest x

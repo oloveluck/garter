@@ -6,20 +6,34 @@ ifeq ($(UNAME), Linux)
 else
 ifeq ($(UNAME), Darwin)
   NASM_FORMAT=macho64
-  CLANG_FLAGS=-mstackrealign -m64 -g -fstack-protector-all -Wstack-protector -fno-omit-frame-pointer
+  CLANG_FLAGS=-arch x86_64 -mstackrealign -m64 -g -fstack-protector-all -Wstack-protector -fno-omit-frame-pointer
 endif
 endif
 
 PKGS=ounit2,extlib,unix
-BUILD=ocamlbuild -r -use-ocamlfind -cflag -annot -ocamlyacc 'ocamlyacc -v'
+
+.PHONY: main test clean
 
 main: *.ml parser.mly lexer.mll
-	$(BUILD) -package $(PKGS) main.native
-	mv main.native main
+	opam exec -- dune build main.exe
+	cp _build/default/main.exe main
 
-test: *.ml parser.mly lexer.mll main
-	$(BUILD) -package $(PKGS) test.native
-	mv test.native test
+test: *.ml parser.mly lexer.mll
+	opam exec -- dune build test.exe
+	cp _build/default/test.exe test
+
+test-verbose: test
+	./test -display true -runner sequential
+
+# Usage: make test-one NAME=print3
+# Finds and runs a test by name (searches all_tests:0:unit_tests:*:NAME)
+test-one: test
+	@TEST_PATH=$$(./test -list-test 2>&1 | grep ":$(NAME)$$" | head -1) && \
+	if [ -z "$$TEST_PATH" ]; then \
+		echo "Test '$(NAME)' not found"; \
+		exit 1; \
+	fi && \
+	./test -only-test "$$TEST_PATH"
 
 output/%.run: output/%.o main.c gc.c
 	clang $(CLANG_FLAGS) -o $@ gc.c main.c $<

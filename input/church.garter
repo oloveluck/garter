@@ -1,0 +1,22 @@
+let zero = (lambda (f): (lambda (x): x)) in
+let one = (lambda (f): (lambda (x): f(x))) in
+let two = (lambda (f): (lambda (x): f(f(x)))) in
+let three = (lambda (f): (lambda (x): f(f(f(x))))) in
+
+let succ = (lambda (n):
+  (lambda (f): (lambda (x): f(n(f)(x))))) in
+
+let add = (lambda (m): (lambda (n):
+  (lambda (f): (lambda (x): m(f)(n(f)(x)))))) in
+
+let mult = (lambda (m): (lambda (n):
+  (lambda (f): m(n(f))))) in
+
+let inc = (lambda (x): add1(x)) in
+let to_int = (lambda (n): n(inc)(0)) in
+
+let four = succ(three) in
+let five = add(two)(three) in
+let six = mult(two)(three) in
+
+(to_int(zero), to_int(three), to_int(four), to_int(five), to_int(six))

@@ -117,6 +117,7 @@ let print_trace (trace : phase list) : string list =
     | Tagged _ -> "Tagged"
     | ANFed _ -> "ANF'ed"
     | Located _ -> "Located"
+    | WrappedNatives _ -> "Wrapped Natives"
     | Result _ -> "Result"
   in
   let string_of_phase p =
@@ -126,6 +127,7 @@ let print_trace (trace : phase list) : string list =
     | Renamed p -> string_of_program p
     | Desugared p -> string_of_program p
     | AddedNatives p -> string_of_program p
+    | WrappedNatives p -> string_of_program p
     | Tagged p -> string_of_program_with 1000 (fun tag -> sprintf "@%d" tag) p
     | ANFed p -> string_of_aprogram_with 1000 (fun tag -> sprintf "@%d" tag) p
     | Located (p, e) ->

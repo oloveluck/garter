@@ -3,18 +3,22 @@
  (modules
   assembly
   compile
+  compilehelpers
   wrapnatives
   naivestack
   freevars
   find
   errors
   exprs
+  graph
   phases
   pretty
+  registerallocation
   runner
+  stringSet
   lexer
   parser)
- (libraries ounit2 extlib unix)
+ (libraries ounit2 extlib unix str)
  (wrapped false))
 
 (ocamllex
@@ -36,4 +40,4 @@
 (env
  (dev
   (flags
-   (:standard -warn-error -A))))
+   (:standard -w +a-4-9-27-33-40-42-44-48-70))))

@@ -1,0 +1,18 @@
+def size(t):
+  if t == nil: 0
+  else: 1 + size(t[1]) + size(t[2])
+
+def sum_tree(t):
+  if t == nil: 0
+  else: t[0] + sum_tree(t[1]) + sum_tree(t[2])
+
+let tree =
+  (4,
+    (2, (1, nil, nil), (3, nil, nil)),
+    (6, (5, nil, nil), (7, nil, nil)))
+in
+
+(
+  size(tree),
+  sum_tree(tree)
+)

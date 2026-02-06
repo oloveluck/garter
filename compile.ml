@@ -8,7 +8,7 @@ open Freevars
 open Errors
 open ExtLib
 open Wrapnatives
-module StringSet = Set.Make (String)
+open Compilehelpers
 
 type 'a name_envt = (string * 'a) list
 type 'a tag_envt = (tag * 'a) list
@@ -75,7 +75,12 @@ let callee_end_function = [ IMov (Reg RSP, Reg RBP); IPop (Reg RBP); IRet ]
 let error_code_to_label (code : int64) : arg = Label (error_code_to_str code)
 
 let check_is_bool (error_code : int64) =
-  [ ITest (Reg RAX, HexConst bool_tag); IJz (error_code_to_label error_code) ]
+  (* Check that (value & 7) == 7, not just (value & 7) != 0 *)
+  [ IMov (Reg R11, Reg RAX)
+  ; IAnd (Reg R11, HexConst bool_tag_mask)
+  ; ICmp (Reg R11, HexConst bool_tag)
+  ; IJne (error_code_to_label error_code)
+  ]
 ;;
 
 let check_is_number (error_code : int64) =
@@ -88,14 +93,6 @@ let check_is_number (error_code : int64) =
 ;;
 
 let is_bool_instructions (tag : tag) =
-  (* [ IMov (Reg RSI, Reg RAX)
-  ; IMov (Reg RAX, const_false)
-  ; IMov (Reg RDI, Reg RAX)
-  ; IMov (Reg RAX, Reg RSI)
-  ; IShl (Reg RAX, Sized (BYTE_PTR, Const 63L))
-  ; IOr (Reg RAX, Reg RDI)
-  ]
-   *)
   let d = sprintf "is_bool_done_%d" tag in
   [ IMov (Reg RSI, Reg RAX)
   ; IMov (Reg RAX, Const bool_tag_mask)
@@ -173,25 +170,6 @@ let rec find ls x =
   | [] -> raise (InternalCompilerError (sprintf "Name %s not found" x))
   | (y, v) :: rest -> if y = x then v else find rest x
 ;;
-
-let count_vars e =
-  let rec helpA e =
-    match e with
-    | ASeq (e1, e2, _) -> max (helpC e1) (helpA e2)
-    | ALet (_, bind, body, _) -> 1 + max (helpC bind) (helpA body)
-    | ALetRec (binds, body, _) ->
-      List.length binds
-      + List.fold_left max (helpA body) (List.map (fun (_, rhs) -> helpC rhs) binds)
-    | ACExpr e -> helpC e
-  and helpC e =
-    match e with
-    | CIf (_, t, f, _) -> max (helpA t) (helpA f)
-    | _ -> 0
-  in
-  helpA e
-;;
-
-let rec replicate x i = if i = 0 then [] else x :: replicate x (i - 1)
 
 let rec find_decl (ds : 'a decl list) (name : string) : 'a decl option =
   match ds with
@@ -952,15 +930,11 @@ and compile_fun
     : instruction list * instruction list * instruction list
   =
   let closure = CLambda (args, expr, 0) in
-  (* what do we put for the prologe and epiloge??*)
-  let inner_env =
-    match List.find_map (fun (n, e) -> if n = funname then Some e else None) env with
-    | None ->
-      raise (InternalCompilerError (sprintf "no env for: %s \n %s" funname (dump env)))
-    | Some e -> e
-  in
-  let prelude = function_prelude (deepest_stack expr inner_env) in
-  prelude, compile_cexpr closure funname env (List.length args) false, function_postlude
+  let prelude = function_prelude (deepest_stack expr env funname) in
+  ( prelude
+  , compile_cexpr closure funname env (List.length args) false
+    @ [ ICall (Label "temp_closure_0") ]
+  , function_postlude )
 
 and compile_aexpr
     (e : tag aexpr)
@@ -991,25 +965,6 @@ and compile_aexpr
     compile_cexpr first funname env num_args is_tail
     @ compile_aexpr rest funname env num_args is_tail
 
-and lookup (funname : string) (name : string) (env : naive_stack_env) =
-  match List.find_opt (fun (f, _) -> funname = f) env with
-  | Some (_, name_env) ->
-    (match List.find_opt (fun (n, _) -> name = n) name_env with
-    | Some (_, arg) -> arg
-    | None ->
-      if funname = "closure#0"
-      then (
-        printf
-          "can't look up name: %s in func: %s in env: \n %s \n\n"
-          name
-          funname
-          (dump env);
-        raise (InternalCompilerError (sprintf "failed to lookup name %s " name)))
-      else lookup "closure#0" name env)
-  | None ->
-    printf "can't look up name %s fun: %s in env: \n %s \n\n" name funname (dump env);
-    (* lookup "closure#0" name env *)
-    raise (InternalCompilerError (sprintf "failed to lookup function %s" funname))
 
 and compile_native_app
     (fun_id : tag immexpr)
@@ -1022,13 +977,12 @@ and compile_native_app
     let arg_instrustions =
       List.mapi
         (fun index arg ->
-          (* TODO NOT SURE WHAT TO DO HERE*)
-          compile_imm arg name env
+          compile_imm arg funname env
           @ [ IMov (Reg (List.nth first_six_args_registers index), Reg RAX) ])
         args
       |> List.flatten
     in
-    arg_instrustions @ [ ICall (Label name) ]
+    arg_instrustions @ [ ICall (Label ("?" ^ name)) ]
   | _ -> raise (InternalCompilerError "invalid attempt to compile a native function")
 
 and compile_prim1
@@ -1059,7 +1013,13 @@ and compile_prim1
     @ [ IJo (error_code_to_label err_OVERFLOW) ]
   | Print -> compile_imm e funname env @ print_instructions
   | IsTuple -> is_tuple_instructions tag
-  | PrintStack -> raise (NotYetImplemented "Fill in here")
+  | PrintStack ->
+    compile_imm e funname env
+    @ [ IMov (Reg RDI, Reg RAX)
+      ; IMov (Reg RSI, Reg RSP)
+      ; IMov (Reg RDX, Reg RBP)
+      ; ICall (Label "?print_stack")
+      ]
 
 and compile_prim2
     (p2 : prim2)
@@ -1222,7 +1182,6 @@ and compile_cexpr
     let len = List.length values in
     reserve len tag
     @ [ IMov (Reg RAX, Sized (QWORD_PTR, Const (Int64.of_int (2 * len))))
-        (* [ IMov (Reg RAX, Sized (QWORD_PTR, Const 4L)) *)
       ; IMov (RegOffset (0, R15), Reg RAX)
       ; IAdd (Reg R15, Const 8L)
       ]
@@ -1233,13 +1192,10 @@ and compile_cexpr
          values
       |> List.flatten)
     @ (if len mod 2 == 0
-      then [ (* IMov (Reg R15, const_nil);  *) IAdd (Reg R15, Const 8L) ]
+      then [ IAdd (Reg R15, Const 8L) ]
       else [])
-    (* let r15_offset = 1 + len + if len mod 2 == 0 then 1 else 0 in *)
     @ [ IAdd (Reg RDI, Sized (QWORD_PTR, Const 1L)) ]
     @ [ IMov (Reg RAX, Reg RDI) ]
-    (* [ IAdd (Reg RDI, Sized (QWORD_PTR, Const 7L)) ] @ [ IMov (Reg RAX, Reg RDI) ] *)
-    (* [ IMov (Reg RAX, RegOffset (~-r15_offset * 8, R15)) ] *)
   | CSetItem (tup_expr, num_expr, value_expr, _) ->
     let tup = compile_imm tup_expr funname env in
     let num = compile_imm num_expr funname env in
@@ -1284,11 +1240,16 @@ and compile_cexpr
     @ [ ICall (Label "?error") ]
     @ [ ILabel test_high_label ]
     @ [ ISub (Reg RAX, Sized (QWORD_PTR, Const 1L)) ]
-    @ [ ICmp (Reg R11, RegOffset (0, RAX))
+    (* Load stored length and divide by 2 since it's stored as 2*len *)
+    @ [ IMov (Reg RDX, RegOffset (0, RAX))
+      ; ISar (Reg RDX, Const 1L)
+      ; ICmp (Reg R11, Reg RDX)
       ; IJge (Label high_label)
       ; IJmp (Label test_low_label)
       ; ILabel high_label
+      (* Pass actual length (stored_len / 2) in RSI for error message *)
       ; IMov (Reg RSI, RegOffset (0, RAX))
+      ; ISar (Reg RSI, Const 1L)
       ; IMov (Reg RDI, Const err_GET_HIGH_INDEX)
       ; ICall (Label "?error")
       ; ILabel test_low_label
@@ -1297,7 +1258,9 @@ and compile_cexpr
       ; IJl (Label low_label)
       ; IJmp (Label done_label)
       ; ILabel low_label
+      (* Pass actual length (stored_len / 2) in RSI for error message *)
       ; IMov (Reg RSI, RegOffset (0, RAX))
+      ; ISar (Reg RSI, Const 1L)
       ; IMov (Reg RDI, Const err_GET_LOW_INDEX)
       ; ICall (Label "?error")
       ; ILabel done_label
@@ -1307,17 +1270,19 @@ and compile_cexpr
   | CLambda (binds, body, tag) ->
     let name = sprintf "temp_closure_%d" tag in
     let after = sprintf "after_%d" tag in
-    let frees = free_vars body binds in
+    let closure_name = sprintf "closure#%d" tag in
+    let frees = List.sort (StringSet.elements (fv_C e)) ~cmp:String.compare in
     let num_frees = List.length frees in
     let heap_offset = 24 + (num_frees * 8) + if num_frees mod 2 = 0 then 8 else 0 in
-    (* let env = allocate_cexpr e 1 in *)
+    let body_stack_depth = deepest_stack body env closure_name in
+    let stack_depth = max body_stack_depth num_frees in
     [ IJmp (Label after) ]
     @ [ ILabel name ]
     (* body preamble *)
     @ [ IPush (Reg RBP) ]
     @ [ IMov (Reg RBP, Reg RSP) ]
-    (* allocate space for free vars *)
-    @ [ ISub (Reg RSP, Const (Int64.of_int (8 * num_frees))) ]
+    (* allocate space for local variables *)
+    @ [ ISub (Reg RSP, Const (Int64.of_int (8 * stack_depth))) ]
     (* move self arg into R11 *)
     @ [ IMov (Reg R11, RegOffset (16, RBP)) ]
     (* untag the self argument *)
@@ -1328,9 +1293,7 @@ and compile_cexpr
     @ (List.mapi
          (fun index _ ->
            [ IMov (Reg RAX, RegOffset ((index * 8) + 24, R11)) ]
-           @ [ IMov (RegOffset (~-8 * (index + 1), RBP), Reg RAX) ]
-           (* [IMov (Reg RAX, RegOffset(24, R11))]
-          IPush (Sized (QWORD_PTR, RegOffset ((index * 8) + 24, R11)))) *))
+           @ [ IMov (RegOffset (~-8 * (index + 1), RBP), Reg RAX) ])
          frees
       |> List.flatten)
     (* / body preamble *)
@@ -1351,7 +1314,7 @@ and compile_cexpr
     @ [ IShl (Reg RDI, Const 2L) ]
     @ [ IMov (RegOffset (0, R15), Reg RDI) ]
     (* move code_ptr into second pos*)
-    @ [ IMov (Reg RDI, Label name) ]
+    @ [ ILea (Reg RDI, Label name) ]
     @ [ IMov (RegOffset (8, R15), Reg RDI) ]
     (* move num frees into third pos *)
     @ [ IMov (Reg RDI, Const (Int64.of_int num_frees)) ]
@@ -1575,7 +1538,7 @@ let compile_prog (anfed, (env : arg name_envt name_envt)) =
   | AProgram (body, _) ->
     (* $heap and $size are mock parameter names, just so that compile_fun knows our_code_starts_here takes in 2 parameters *)
     let prologue, comp_main, epilogue =
-      compile_fun "?our_code_starts_here" [ "$heap"; "$size" ] body env
+      compile_fun "closure#0" [ "$heap"; "$size" ] body env
     in
     let heap_start =
       [ ILineComment "heap start"

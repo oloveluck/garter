@@ -1,0 +1,38 @@
+def map(f, l):
+  if l == nil: nil
+  else: (f(l[0]), map(f, l[1]))
+
+def filter(p, l):
+  if l == nil: nil
+  else:
+    if p(l[0]): (l[0], filter(p, l[1]))
+    else: filter(p, l[1])
+
+def foldl(f, acc, l):
+  if l == nil: acc
+  else: foldl(f, f(acc, l[0]), l[1])
+
+def foldr(f, acc, l):
+  if l == nil: acc
+  else: f(l[0], foldr(f, acc, l[1]))
+
+def sum(l): foldl((lambda (a, x): a + x), 0, l)
+def product(l): foldl((lambda (a, x): a * x), 1, l)
+def length(l): foldl((lambda (a, x): a + 1), 0, l)
+def reverse(l): foldl((lambda (a, x): (x, a)), nil, l)
+
+let nums = (1, (2, (3, (4, (5, nil))))) in
+
+let double = (lambda (x): x * 2) in
+let square = (lambda (x): x * x) in
+let gt2 = (lambda (x): x > 2) in
+
+(
+  sum(nums),
+  product(nums),
+  length(nums),
+  sum(map(double, nums)),
+  sum(map(square, nums)),
+  sum(filter(gt2, nums)),
+  reverse(nums)
+)

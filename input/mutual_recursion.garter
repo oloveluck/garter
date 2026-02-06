@@ -1,0 +1,24 @@
+def parity_check(n, want_even):
+  if n == 0:
+    if want_even: true else: false
+  else:
+    if want_even:
+      parity_check(n - 1, false)
+    else:
+      parity_check(n - 1, true)
+
+def fib_rec(n, a, b):
+  if n == 0: a
+  else: fib_rec(n - 1, b, a + b)
+
+def fact_rec(n, acc):
+  if n == 0: acc
+  else: fact_rec(n - 1, n * acc)
+
+let is_even4 = parity_check(4, true) in
+let is_even7 = parity_check(7, true) in
+let is_odd5 = parity_check(5, false) in
+let fib10 = fib_rec(10, 0, 1) in
+let fact6 = fact_rec(6, 1) in
+
+(is_even4, is_even7, is_odd5, fib10, fact6)

@@ -6,6 +6,7 @@ let word_size = 8
 
 type reg =
   | RAX
+  | RBX
   | RSP
   | RBP
   | RSI
@@ -40,6 +41,7 @@ type arg =
 
 type instruction =
   | IMov of arg * arg
+  | ILea of arg * arg
 
   | IAdd of arg * arg
   | ISub of arg * arg
@@ -80,6 +82,7 @@ type instruction =
 let r_to_asm (r : reg) : string =
   match r with
   | RAX -> "RAX"
+  | RBX -> "RBX"
   | RSI -> "RSI"
   | RDI -> "RDI"
   | RCX -> "RCX"
@@ -113,7 +116,7 @@ let rec arg_to_asm (a : arg) : string =
      sprintf "%s %s"
              (match size with | QWORD_PTR -> "QWORD" | DWORD_PTR -> "DWORD" | WORD_PTR -> "WORD" | BYTE_PTR -> "BYTE")
              (arg_to_asm a)
-  | LabelContents s -> sprintf "[%s]" s
+  | LabelContents s -> sprintf "[rel %s]" s
   | Label s -> s
 ;;
 
@@ -121,6 +124,8 @@ let rec i_to_asm (i : instruction) : string =
   match i with
   | IMov(dest, value) ->
      sprintf "  mov %s, %s" (arg_to_asm dest) (arg_to_asm value)
+  | ILea(dest, value) ->
+     sprintf "  lea %s, [rel %s]" (arg_to_asm dest) (arg_to_asm value)
   | IAdd(dest, to_add) ->
      sprintf "  add %s, %s" (arg_to_asm dest) (arg_to_asm to_add)
   | ISub(dest, to_sub) ->

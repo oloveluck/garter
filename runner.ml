@@ -97,7 +97,7 @@ let run_vg (program_name : string) args std_input : (string, string) result =
       rstdin rstdout rstderr in
   let (_, status) = waitpid [] ran_pid in
   let vg_str = string_of_file rstderr_name in
-  let vg_ok = String.exists vg_str "0 errors from 0 contexts" in
+  let vg_ok = ExtLib.String.exists ~sub:"0 errors from 0 contexts" vg_str in
   let result = match (status, vg_ok) with
     | WEXITED 0, true -> Ok(string_of_file rstdout_name)
     | WEXITED 0, false -> Error("Stdout: " ^ (string_of_file rstdout_name) ^ "\n" ^ "Valgrind: \n" ^ vg_str)
@@ -232,7 +232,7 @@ let test_err ?no_builtins:(no_builtins=false) ?args:(args=[]) ?std_input:(std_in
     ~printer:result_printer
     ~cmp: (fun check result ->
       match check, result with
-      | Error(expect_msg), Error(actual_message) -> String.exists actual_message expect_msg
+      | Error(expect_msg), Error(actual_message) -> ExtLib.String.exists ~sub:expect_msg actual_message
       | _ -> false
     )
 
@@ -264,7 +264,7 @@ let test_does_run filename test_ctxt =
   runner ~args:args ~std_input:input prog ("do_pass/" ^ filename) output test_ctxt
     ~cmp: (fun check result ->
       match check, result with
-      | Ok(expect_msg), Ok(actual_message) -> String.exists actual_message expect_msg
+      | Ok(expect_msg), Ok(actual_message) -> ExtLib.String.exists ~sub:expect_msg actual_message
       | _ -> false
     )
 

@@ -1,20 +1,4 @@
 open Exprs
-open Errors
-open Phases
-open Find
-open Printf
-open ExtLib
-
-(* let is_well_formed (p : sourcespan program) : sourcespan program fallible =
-  let rec wf_E (e : sourcespan expr) (* other parameters may be needed here *) =
-    Error [ NotYetImplemented "Implement well-formedness checking for expressions" ]
-  and wf_D (d : sourcespan decl) (* other parameters may be needed here *) =
-    Error [ NotYetImplemented "Implement well-formedness checking for definitions" ]
-  in
-  match p with
-  | Program (decls, body, _) ->
-    Error [ NotYetImplemented "Implement well-formedness checking for programs" ]
-;; *)
 
 let wrap_natives (p : sourcespan program) : sourcespan program =
   match p with
