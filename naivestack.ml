@@ -110,18 +110,39 @@ and rec_bindings_to_env
     (si : int)
     : naive_stack_env
   =
-  match bindings with
-  | (name, value) :: rest ->
-    let closure_name = get_next_function value in
-    let lhs_env = add_to_fun_env funname name (RegOffset (~-8 * si, RBP)) env in
-    let funname_in_closure_env =
-      add_to_fun_env closure_name name (RegOffset (16, RBP)) lhs_env
-    in
-    let rhs_env =
-      allocate_cexpr value closure_name (si + 1) funname_in_closure_env name
-    in
-    rec_bindings_to_env rest funname rhs_env (si + 1)
-  | [] -> env
+  (* First pass: collect all binding names and their stack slots, and add them to funname's env *)
+  let rec collect_names bindings si acc env =
+    match bindings with
+    | (name, value) :: rest ->
+      let closure_name = get_next_function value in
+      let slot = RegOffset (~-8 * si, RBP) in
+      let env = add_to_fun_env funname name slot env in
+      collect_names rest (si + 1) ((name, closure_name, slot) :: acc) env
+    | [] -> List.rev acc, env
+  in
+  let all_bindings, env = collect_names bindings si [] env in
+  (* Second pass: for each closure, add ALL sibling names to its environment *)
+  let rec process_bindings bindings_info all_names si env =
+    match bindings_info with
+    | (name, closure_name, _slot) :: rest ->
+      (* Add all sibling names (including self) to this closure's environment at [RBP+16]
+         since they will be captured as free variables and placed on the stack *)
+      let env_with_siblings =
+        List.fold_left
+          (fun env (sibling_name, _, _) ->
+            add_to_fun_env closure_name sibling_name (RegOffset (16, RBP)) env)
+          env
+          all_names
+      in
+      (* Find the corresponding value in bindings *)
+      let value = List.assoc name bindings in
+      let rhs_env =
+        allocate_cexpr value closure_name (si + 1) env_with_siblings name
+      in
+      process_bindings rest all_names (si + 1) rhs_env
+    | [] -> env
+  in
+  process_bindings all_bindings all_bindings si env
 
 and lambda_args_to_env
     (args : string list)

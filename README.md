@@ -67,6 +67,32 @@ make test-one TEST=print3     # Run a single test by name
 - `print(x)` - prints value and returns it
 - `input()` - reads a number from stdin
 
+### Tail Call Optimization
+Functions in tail position are optimized to reuse the current stack frame, enabling deep recursion without stack overflow:
+```
+def countdown(n):
+  if n == 0: 0
+  else: countdown(n - 1)
+
+countdown(1000000)  # Works without stack overflow
+```
+
+### Garbage Collection
+Garter uses a Cheney copying collector for automatic memory management. The GC is triggered when heap space runs low during tuple or closure allocation. Both tuples and closures are properly traced and compacted.
+
+### Mutual Recursion
+Functions defined together with `and` can call each other:
+```
+def even(n):
+  if n == 0: true
+  else: odd(n - 1)
+and def odd(n):
+  if n == 0: false
+  else: even(n - 1)
+
+even(100)  # true
+```
+
 ## Project Structure
 
 - `compile.ml` - Main compiler implementation

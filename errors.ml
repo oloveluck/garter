@@ -46,7 +46,7 @@ let print_errors (exns : exn list) : string list =
          sprintf "The function name %s, redefined at <%s>, duplicates one at <%s>"
                  x (string_of_sourcespan loc) (string_of_sourcespan existing)
       | Overflow(num, loc) ->
-         sprintf "The number literal %Ld, used at <%s>, is not supported in this language"
+         sprintf "Integer overflow: the number literal %Ld, used at <%s>, is too large"
                  num (string_of_sourcespan loc)
       | Arity(expected, actual, loc) ->
          sprintf "The function called at <%s> expected an arity of %d, but received %d arguments"

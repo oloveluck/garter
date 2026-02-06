@@ -1,0 +1,5 @@
+def make_list(n, acc):
+  if n == 0: acc
+  else: make_list(n - 1, (n, acc))
+
+make_list(100, nil)

@@ -946,23 +946,59 @@ and compile_aexpr
   =
   match e with
   | ALet (name, value, body, tag) ->
-    compile_cexpr value funname env num_args is_tail
+    (* Value is NOT in tail position, body inherits tail position *)
+    compile_cexpr value funname env num_args false
     @ [ IMov (lookup funname name env, Reg RAX) ]
     @ compile_aexpr body funname env num_args is_tail
   | ACExpr c -> compile_cexpr c funname env num_args is_tail
   | ALetRec (bindings, body, tag) ->
-    (List.map
-       (fun (name, value) ->
-         let new_env : naive_stack_env =
-           add_to_fun_env funname name (RegOffset (16, RBP)) env
-         in
-         compile_cexpr value funname new_env num_args is_tail
-         @ [ IMov (lookup funname name env, Reg RAX) ])
-       bindings
-    |> List.flatten)
+    (* For mutually recursive closures:
+       1. First, create all closures (sibling refs may contain garbage initially)
+       2. Then, patch up the sibling references in each closure's free var slots *)
+    let sibling_names = List.map fst bindings in
+    let sibling_set = StringSet.of_list sibling_names in
+    (* Phase 1: Create all closures *)
+    let create_closures =
+      List.map
+        (fun (name, value) ->
+          compile_cexpr value funname env num_args false
+          @ [ IMov (lookup funname name env, Reg RAX) ])
+        bindings
+      |> List.flatten
+    in
+    (* Phase 2: Patch sibling references in each closure's free var slots
+       For each closure, go through its free vars and update any that are siblings *)
+    let patch_closures =
+      List.map
+        (fun (name, value) ->
+          match value with
+          | CLambda (_, _, _) ->
+            let frees = List.sort (StringSet.elements (fv_C value)) ~cmp:String.compare in
+            let closure_loc = lookup funname name env in
+            (* For each free var that is a sibling, patch it *)
+            List.mapi
+              (fun index free_name ->
+                if StringSet.mem free_name sibling_set then
+                  (* Load the closure pointer, untag, store sibling at the right offset *)
+                  [ ILineComment (sprintf "patch sibling %s in closure %s" free_name name)
+                  ; IMov (Reg R11, closure_loc)
+                  ; ISub (Reg R11, Const 5L)  (* untag *)
+                  ; IMov (Reg RAX, lookup funname free_name env)
+                  ; IMov (RegOffset ((index * 8) + 24, R11), Reg RAX)
+                  ]
+                else
+                  [])
+              frees
+            |> List.flatten
+          | _ -> [])
+        bindings
+      |> List.flatten
+    in
+    create_closures @ patch_closures
     @ compile_aexpr body funname env num_args is_tail
   | ASeq (first, rest, tag) ->
-    compile_cexpr first funname env num_args is_tail
+    (* First is NOT in tail position, rest inherits tail position *)
+    compile_cexpr first funname env num_args false
     @ compile_aexpr rest funname env num_args is_tail
 
 
@@ -1177,10 +1213,10 @@ and compile_cexpr
   | CPrim2 (op, e1, e2, tag) -> compile_prim2 op e1 e2 funname env tag
   | CImmExpr immexpr -> compile_imm immexpr funname env
   | CTuple (values, tag) ->
-    [ IMov (Reg RDI, Reg R15) ]
-    @
     let len = List.length values in
     reserve len tag
+    (* Save R15 AFTER reserve (which may trigger GC and update R15) *)
+    @ [ IMov (Reg RDI, Reg R15) ]
     @ [ IMov (Reg RAX, Sized (QWORD_PTR, Const (Int64.of_int (2 * len))))
       ; IMov (RegOffset (0, R15), Reg RAX)
       ; IAdd (Reg R15, Const 8L)
@@ -1300,7 +1336,7 @@ and compile_cexpr
     (* body *)
     @ [ ILineComment "body start" ]
     @ [ ILineComment (sprintf "env : %s" (dump env)) ]
-    @ compile_aexpr body (sprintf "closure#%d" tag) env num_args is_tail
+    @ compile_aexpr body (sprintf "closure#%d" tag) env (List.length binds) true
     @ [ ILineComment "body end" ]
     (* / body *)
     (* body postamble *)
@@ -1340,41 +1376,78 @@ and compile_cexpr
     | _ ->
       let is_fun = sprintf "is_fun#%d" tag in
       let eq_arity = sprintf "eq_arity#%d" tag in
-      [ ILineComment "get function" ]
-      @ compile_imm funv funname env
-      (* check is fun & arity *)
-      @ [ ILineComment "check fun" ]
-      @ [ IMov (Reg RDX, Reg RAX) ]
-      @ [ IMov (Reg RDI, Const bool_tag) ]
-      @ [ IAnd (Reg RDX, Reg RDI) ]
-      @ [ IMov (Reg RDI, Const 5L) ]
-      @ [ ICmp (Reg RDX, Reg RDI) ]
-      @ [ IJe (Label is_fun) ]
-      @ [ IMov (Reg RSI, Reg RAX) ]
-      @ [ IMov (Reg RDI, Const err_CALL_NOT_CLOSURE) ]
-      @ [ ICall (Label "?error") ]
-      @ [ ILabel is_fun ]
-      @ [ ILineComment "check arity" ]
-      @ [ IMov (Reg RSI, Const (Int64.of_int (List.length args))) ]
-      @ [ IShl (Reg RSI, Const 2L) ]
-      @ [ IMov (Reg RDX, RegOffset (~-5, RAX)) ]
-      @ [ ICmp (Reg RSI, Reg RDX) ]
-      @ [ IJe (Label eq_arity) ]
-      @ [ IMov (Reg RDI, Const err_CALL_ARITY_ERR) ]
-      @ [ ICall (Label "?error") ]
-      (* push arguments onto stack *)
-      @ [ ILabel eq_arity ]
-      @ [ ILineComment "push args onto stack" ]
-      @ (List.rev args
-        |> List.map (fun arg -> compile_imm arg funname env @ [ IPush (Reg RAX) ])
-        |> List.flatten)
-      @ compile_imm funv funname env
-      @ [ ILineComment "push RAX onto stack" ]
-      @ [ IPush (Reg RAX) ]
-      (* @ [ IAdd (Reg RAX, Const 3L) ] *)
-      @ [ ILineComment "call function" ]
-      @ [ ICall (RegOffset (3, RAX)) ]
-      @ [ IAdd (Reg RSP, Const (Int64.of_int ((List.length args + 1) * 8))) ])
+      let num_call_args = List.length args in
+      (* Common checking code for closure and arity *)
+      let check_closure_and_arity =
+        [ ILineComment "get function" ]
+        @ compile_imm funv funname env
+        (* check is fun & arity *)
+        @ [ ILineComment "check fun" ]
+        @ [ IMov (Reg RDX, Reg RAX) ]
+        @ [ IMov (Reg RDI, Const bool_tag) ]
+        @ [ IAnd (Reg RDX, Reg RDI) ]
+        @ [ IMov (Reg RDI, Const 5L) ]
+        @ [ ICmp (Reg RDX, Reg RDI) ]
+        @ [ IJe (Label is_fun) ]
+        @ [ IMov (Reg RSI, Reg RAX) ]
+        @ [ IMov (Reg RDI, Const err_CALL_NOT_CLOSURE) ]
+        @ [ ICall (Label "?error") ]
+        @ [ ILabel is_fun ]
+        @ [ ILineComment "check arity" ]
+        @ [ IMov (Reg RSI, Const (Int64.of_int num_call_args)) ]
+        @ [ IShl (Reg RSI, Const 2L) ]
+        @ [ IMov (Reg RDX, RegOffset (~-5, RAX)) ]
+        @ [ ICmp (Reg RSI, Reg RDX) ]
+        @ [ IJe (Label eq_arity) ]
+        @ [ IMov (Reg RDI, Const err_CALL_ARITY_ERR) ]
+        @ [ ICall (Label "?error") ]
+        @ [ ILabel eq_arity ]
+      in
+      if is_tail && num_call_args = num_args then
+        (* Tail call optimization: reuse current stack frame *)
+        check_closure_and_arity
+        @ [ ILineComment "TCO: save closure to scratch" ]
+        @ [ IMov (Reg R12, Reg RAX) ]  (* Save closure in R12 *)
+        (* Evaluate all arguments and store them in scratch locations on the stack *)
+        @ [ ILineComment "TCO: evaluate args to scratch locations" ]
+        @ (List.mapi
+             (fun i arg ->
+               compile_imm arg funname env
+               @ [ IMov (RegOffset (~-8 * (num_args + i + 2), RBP), Reg RAX) ])
+             args
+          |> List.flatten)
+        (* Move arguments from scratch to caller's parameter positions *)
+        @ [ ILineComment "TCO: move args to caller's param positions" ]
+        @ (List.mapi
+             (fun i _ ->
+               [ IMov (Reg RAX, RegOffset (~-8 * (num_args + i + 2), RBP))
+               ; IMov (RegOffset (24 + (i * 8), RBP), Reg RAX) ])
+             args
+          |> List.flatten)
+        (* Move closure to self position *)
+        @ [ ILineComment "TCO: move closure to self position" ]
+        @ [ IMov (RegOffset (16, RBP), Reg R12) ]
+        (* Get code pointer *)
+        @ [ IMov (Reg RAX, Reg R12) ]
+        @ [ IMov (Reg RAX, RegOffset (3, RAX)) ]  (* code pointer at offset 8, minus tag 5 = 3 *)
+        (* Restore frame and jump *)
+        @ [ ILineComment "TCO: restore frame and jump" ]
+        @ [ IMov (Reg RSP, Reg RBP) ]
+        @ [ IPop (Reg RBP) ]
+        @ [ IJmp (Reg RAX) ]
+      else
+        (* Regular call *)
+        check_closure_and_arity
+        @ [ ILineComment "push args onto stack" ]
+        @ (List.rev args
+          |> List.map (fun arg -> compile_imm arg funname env @ [ IPush (Reg RAX) ])
+          |> List.flatten)
+        @ compile_imm funv funname env
+        @ [ ILineComment "push RAX onto stack" ]
+        @ [ IPush (Reg RAX) ]
+        @ [ ILineComment "call function" ]
+        @ [ ICall (RegOffset (3, RAX)) ]
+        @ [ IAdd (Reg RSP, Const (Int64.of_int ((num_call_args + 1) * 8))) ])
 
 and compile_imm (e : tag immexpr) (funname : string) (env : naive_stack_env)
     : instruction list
