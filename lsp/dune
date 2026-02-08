@@ -1,0 +1,4 @@
+(executable
+ (name garter_lsp)
+ (public_name garter-lsp)
+ (libraries garter_impl linol linol-lwt yojson logs))

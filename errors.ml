@@ -17,6 +17,7 @@ exception InternalCompilerError of string (* Major failure: message to show *)
 exception LetRecNonFunction of sourcespan bind * sourcespan (* name binding, where defined *)
 exception ShouldBeFunction of string * sourcespan (* name, where defined, actual typ *)
 exception DeclArity of string * int * int * sourcespan (* name, num args, num types, where defined *)
+exception TypeError of string * sourcespan (* message, where *)
 
 
   
@@ -59,6 +60,8 @@ let print_errors (exns : exn list) : string list =
       | LetRecNonFunction(bind, loc) ->
          sprintf "Binding error at %s: Let-rec expected a name binding to a lambda; got %s"
            (string_of_sourcespan loc) (string_of_bind bind)
+      | TypeError(msg, loc) ->
+         sprintf "Type error at <%s>: %s" (string_of_sourcespan loc) msg
       | _ ->
          sprintf "%s" (Printexc.to_string e)
     ) exns

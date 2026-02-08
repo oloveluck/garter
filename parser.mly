@@ -1,9 +1,5 @@
 %{
 open Exprs
-
-let full_span() = (Parsing.symbol_start_pos (), Parsing.symbol_end_pos ())
-let tok_span(start, endtok) = (Parsing.rhs_start_pos start, Parsing.rhs_end_pos endtok)
-
 %}
 
 %token <int64> NUM
@@ -24,11 +20,11 @@ let tok_span(start, endtok) = (Parsing.rhs_start_pos start, Parsing.rhs_end_pos 
 %%
 
 const :
-  | NUM { ENumber($1, full_span()) }
-  | TRUE { EBool(true, full_span()) }
-  | FALSE { EBool(false, full_span()) }
-  | NIL %prec SEMI { ENil(full_span()) }
-  | STRING { EString($1, full_span()) }
+  | NUM { ENumber($1, ($startpos, $endpos)) }
+  | TRUE { EBool(true, ($startpos, $endpos)) }
+  | FALSE { EBool(false, ($startpos, $endpos)) }
+  | NIL %prec SEMI { ENil(($startpos, $endpos)) }
+  | STRING { EString($1, ($startpos, $endpos)) }
 
 prim1 :
   | ADD1 { Add1 }
@@ -41,20 +37,20 @@ prim1 :
   | PRINTSTACK { PrintStack }
 
 bindings :
-  | bind EQUAL expr { [($1, $3, full_span())] }
-  | bind EQUAL expr COMMA bindings { ($1, $3, tok_span(1, 3))::$5 }
+  | bind EQUAL expr { [($1, $3, ($startpos, $endpos))] }
+  | bind EQUAL expr COMMA bindings { ($1, $3, ($startpos($1), $endpos($3)))::$5 }
 
 namebindings :
-  | namebind EQUAL expr { [($1, $3, full_span())] }
-  | namebind EQUAL expr COMMA namebindings { ($1, $3, tok_span(1, 3))::$5 }
+  | namebind EQUAL expr { [($1, $3, ($startpos, $endpos))] }
+  | namebind EQUAL expr COMMA namebindings { ($1, $3, ($startpos($1), $endpos($3)))::$5 }
 
 expr :
-  | LET bindings IN expr { ELet($2, $4, full_span()) }
-  | LET REC namebindings IN expr { ELetRec($3, $5, full_span()) }
-  | IF expr COLON expr ELSECOLON expr { EIf($2, $4, $6, full_span()) }
-  | MATCH expr COLON match_cases { EMatch($2, $4, full_span()) }
+  | LET bindings IN expr { ELet($2, $4, ($startpos, $endpos)) }
+  | LET REC namebindings IN expr { ELetRec($3, $5, ($startpos, $endpos)) }
+  | IF expr COLON expr ELSECOLON expr { EIf($2, $4, $6, ($startpos, $endpos)) }
+  | MATCH expr COLON match_cases { EMatch($2, $4, ($startpos, $endpos)) }
   | BEGIN expr END { $2 }
-  | binop_expr SEMI expr { ESeq($1, $3, full_span()) }
+  | binop_expr SEMI expr { ESeq($1, $3, ($startpos, $endpos)) }
   | binop_expr { $1 }
 
 match_cases :
@@ -65,19 +61,19 @@ match_case :
   | BAR pattern ARROW expr { ($2, $4) }
 
 pattern :
-  | UNDERSCORE { PWild(full_span()) }
-  | ID { PVar($1, full_span()) }
-  | NUM { PNum($1, full_span()) }
-  | TRUE { PBool(true, full_span()) }
-  | FALSE { PBool(false, full_span()) }
-  | STRING { PString($1, full_span()) }
-  | NIL { PNil(full_span()) }
-  | LPARENNOSPACE RPAREN { PTuple([], full_span()) }
-  | LPARENSPACE RPAREN { PTuple([], full_span()) }
-  | LPARENNOSPACE pattern COMMA RPAREN { PTuple([$2], full_span()) }
-  | LPARENSPACE pattern COMMA RPAREN { PTuple([$2], full_span()) }
-  | LPARENNOSPACE pattern COMMA patterns RPAREN { PTuple($2::$4, full_span()) }
-  | LPARENSPACE pattern COMMA patterns RPAREN { PTuple($2::$4, full_span()) }
+  | UNDERSCORE { PWild(($startpos, $endpos)) }
+  | ID { PVar($1, ($startpos, $endpos)) }
+  | NUM { PNum($1, ($startpos, $endpos)) }
+  | TRUE { PBool(true, ($startpos, $endpos)) }
+  | FALSE { PBool(false, ($startpos, $endpos)) }
+  | STRING { PString($1, ($startpos, $endpos)) }
+  | NIL { PNil(($startpos, $endpos)) }
+  | LPARENNOSPACE RPAREN { PTuple([], ($startpos, $endpos)) }
+  | LPARENSPACE RPAREN { PTuple([], ($startpos, $endpos)) }
+  | LPARENNOSPACE pattern COMMA RPAREN { PTuple([$2], ($startpos, $endpos)) }
+  | LPARENSPACE pattern COMMA RPAREN { PTuple([$2], ($startpos, $endpos)) }
+  | LPARENNOSPACE pattern COMMA patterns RPAREN { PTuple($2::$4, ($startpos, $endpos)) }
+  | LPARENSPACE pattern COMMA patterns RPAREN { PTuple($2::$4, ($startpos, $endpos)) }
 
 patterns :
   | pattern { [$1] }
@@ -88,15 +84,15 @@ exprs :
   | expr COMMA exprs { $1::$3 }
 
 tuple_expr :
-  | LPARENNOSPACE RPAREN { ETuple([], full_span()) }
-  | LPARENSPACE RPAREN { ETuple([], full_span()) }
-  | LPARENNOSPACE expr COMMA RPAREN { ETuple([$2], full_span()) }
-  | LPARENSPACE expr COMMA RPAREN { ETuple([$2], full_span()) }
-  | LPARENNOSPACE expr COMMA exprs RPAREN { ETuple($2::$4, full_span()) }
-  | LPARENSPACE expr COMMA exprs RPAREN { ETuple($2::$4, full_span()) }
+  | LPARENNOSPACE RPAREN { ETuple([], ($startpos, $endpos)) }
+  | LPARENSPACE RPAREN { ETuple([], ($startpos, $endpos)) }
+  | LPARENNOSPACE expr COMMA RPAREN { ETuple([$2], ($startpos, $endpos)) }
+  | LPARENSPACE expr COMMA RPAREN { ETuple([$2], ($startpos, $endpos)) }
+  | LPARENNOSPACE expr COMMA exprs RPAREN { ETuple($2::$4, ($startpos, $endpos)) }
+  | LPARENSPACE expr COMMA exprs RPAREN { ETuple($2::$4, ($startpos, $endpos)) }
 
 id :
-  | ID %prec COLON { EId($1, full_span()) }
+  | ID %prec COLON { EId($1, ($startpos, $endpos)) }
 
 
 prim2 :
@@ -114,40 +110,40 @@ prim2 :
   | EQEQ { Eq }
 
 binop_expr :
-  | binop_expr prim2 binop_operand %prec PLUS { EPrim2($2, $1, $3, full_span()) }
+  | binop_expr prim2 binop_operand %prec PLUS { EPrim2($2, $1, $3, ($startpos, $endpos)) }
   | binop_operand COLONEQ binop_expr %prec COLONEQ {
       match $1 with
-      | EGetItem(lhs, idx, _) -> ESetItem(lhs, idx, $3, full_span())
-      | _ -> raise Parsing.Parse_error
+      | EGetItem(lhs, idx, _) -> ESetItem(lhs, idx, $3, ($startpos, $endpos))
+      | _ -> raise (Errors.ParseError (Printf.sprintf "Parse error: invalid assignment target at line %d" $startpos.Lexing.pos_lnum))
     }
-  | binop_operand %prec PLUS { $1 } 
+  | binop_operand %prec PLUS { $1 }
 
 binop_operand :
   // Primops
-  | prim1 LPARENNOSPACE expr RPAREN { EPrim1($1, $3, full_span()) }
+  | prim1 LPARENNOSPACE expr RPAREN { EPrim1($1, $3, ($startpos, $endpos)) }
   // Tuples
   | tuple_expr { $1 }
-  | binop_operand LBRACK expr RBRACK { EGetItem($1, $3, full_span()) }
+  | binop_operand LBRACK expr RBRACK { EGetItem($1, $3, ($startpos, $endpos)) }
   // Function calls
-  | binop_operand LPARENNOSPACE exprs RPAREN %prec LPARENNOSPACE { EApp($1, $3, Unknown, full_span()) }
-  | binop_operand LPARENNOSPACE RPAREN %prec LPARENNOSPACE { EApp($1, [], Unknown, full_span()) }
+  | binop_operand LPARENNOSPACE exprs RPAREN %prec LPARENNOSPACE { EApp($1, $3, Unknown, ($startpos, $endpos)) }
+  | binop_operand LPARENNOSPACE RPAREN %prec LPARENNOSPACE { EApp($1, [], Unknown, ($startpos, $endpos)) }
   // Parentheses
   | LPARENSPACE expr RPAREN { $2 }
   | LPARENNOSPACE expr RPAREN { $2 }
   // Lambdas
-  | LPARENNOSPACE LAMBDA LPARENNOSPACE binds RPAREN COLON expr RPAREN { ELambda($4, $7, full_span()) }
-  | LPARENNOSPACE LAMBDA LPARENSPACE binds RPAREN COLON expr RPAREN { ELambda($4, $7, full_span()) }
-  | LPARENNOSPACE LAMBDA COLON expr RPAREN { ELambda([], $4, full_span()) }
-  | LPARENSPACE LAMBDA LPARENNOSPACE binds RPAREN COLON expr RPAREN { ELambda($4, $7, full_span()) }
-  | LPARENSPACE LAMBDA LPARENSPACE binds RPAREN COLON expr RPAREN { ELambda($4, $7, full_span()) }
-  | LPARENSPACE LAMBDA COLON expr RPAREN { ELambda([], $4, full_span()) }
+  | LPARENNOSPACE LAMBDA LPARENNOSPACE binds RPAREN COLON expr RPAREN { ELambda($4, $7, ($startpos, $endpos)) }
+  | LPARENNOSPACE LAMBDA LPARENSPACE binds RPAREN COLON expr RPAREN { ELambda($4, $7, ($startpos, $endpos)) }
+  | LPARENNOSPACE LAMBDA COLON expr RPAREN { ELambda([], $4, ($startpos, $endpos)) }
+  | LPARENSPACE LAMBDA LPARENNOSPACE binds RPAREN COLON expr RPAREN { ELambda($4, $7, ($startpos, $endpos)) }
+  | LPARENSPACE LAMBDA LPARENSPACE binds RPAREN COLON expr RPAREN { ELambda($4, $7, ($startpos, $endpos)) }
+  | LPARENSPACE LAMBDA COLON expr RPAREN { ELambda([], $4, ($startpos, $endpos)) }
   // Simple cases
   | const { $1 }
   | id { $1 }
 
 decl :
-  | DEF ID LPARENNOSPACE RPAREN COLON expr { DFun($2, [], $6, full_span()) }
-  | DEF ID LPARENNOSPACE binds RPAREN COLON expr { DFun($2, $4, $7, full_span()) }
+  | DEF ID LPARENNOSPACE RPAREN COLON expr { DFun($2, [], $6, ($startpos, $endpos)) }
+  | DEF ID LPARENNOSPACE binds RPAREN COLON expr { DFun($2, $4, $7, ($startpos, $endpos)) }
 
 binds :
   | bind { [$1] }
@@ -156,15 +152,15 @@ binds :
 bind :
   | namebind { $1 }
   | blankbind { $1 }
-  | LPARENNOSPACE binds RPAREN { BTuple($2, full_span()) }
-  | LPARENSPACE binds RPAREN { BTuple($2, full_span()) }
+  | LPARENNOSPACE binds RPAREN { BTuple($2, ($startpos, $endpos)) }
+  | LPARENSPACE binds RPAREN { BTuple($2, ($startpos, $endpos)) }
 
 blankbind :
-  | UNDERSCORE %prec SEMI { BBlank(full_span()) }
+  | UNDERSCORE %prec SEMI { BBlank(($startpos, $endpos)) }
 
 namebind :
-  | ID %prec SEMI { BName($1, false, full_span()) }
-  | SHADOW ID %prec SEMI { BName($2, true, full_span()) }
+  | ID %prec SEMI { BName($1, false, ($startpos, $endpos)) }
+  | SHADOW ID %prec SEMI { BName($2, true, ($startpos, $endpos)) }
 
 declgroup :
   | decl { [$1] }
@@ -176,6 +172,6 @@ decls :
 
 
 program :
-  | decls expr EOF { Program($1, $2, full_span()) }
+  | decls expr EOF { Program($1, $2, ($startpos, $endpos)) }
 
 %%

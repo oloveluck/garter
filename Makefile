@@ -16,7 +16,7 @@ RUNTIME_LIB=runtime/target/$(RUST_TARGET)/release/libgarter_runtime.a
 
 PKGS=ounit2,extlib,unix
 
-.PHONY: main test clean runtime runtime-debug all
+.PHONY: main test clean runtime runtime-debug all lsp
 
 # Build everything
 all: main runtime
@@ -25,6 +25,11 @@ main: *.ml parser.mly lexer.mll
 	opam exec -- dune build main.exe
 	rm -f main
 	cp _build/default/main.exe main
+
+lsp:
+	opam exec -- dune build lsp/garter_lsp.exe
+	rm -f garter-lsp
+	cp _build/default/lsp/garter_lsp.exe garter-lsp
 
 test: *.ml parser.mly lexer.mll runtime
 	opam exec -- dune build test.exe

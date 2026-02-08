@@ -21,6 +21,7 @@ type phase =
   | Source of string
   | Parsed of sourcespan program
   | WellFormed of sourcespan program
+  | TypeChecked of sourcespan program
   | Renamed of tag program
   | Desugared of sourcespan program
   | AddedNatives of sourcespan program
@@ -35,6 +36,7 @@ type phase =
 let source s = Source s
 let parsed p = Parsed p
 let well_formed p = WellFormed p
+let type_checked p = TypeChecked p
 let renamed p = Renamed p
 let wrapped_natives p = WrappedNatives p
 let desugared p = Desugared p
@@ -111,6 +113,7 @@ let print_trace (trace : phase list) : string list =
     | Source _ -> "Source"
     | Parsed _ -> "Parsed"
     | WellFormed _ -> "Well-formed"
+    | TypeChecked _ -> "Type-checked"
     | Renamed _ -> "Renamed"
     | Desugared _ -> "Desugared"
     | AddedNatives _ -> "Natives Added"
@@ -123,7 +126,7 @@ let print_trace (trace : phase list) : string list =
   let string_of_phase p =
     match p with
     | Source s -> s
-    | Parsed p | WellFormed p -> string_of_program p
+    | Parsed p | WellFormed p | TypeChecked p -> string_of_program p
     | Renamed p -> string_of_program p
     | Desugared p -> string_of_program p
     | AddedNatives p -> string_of_program p

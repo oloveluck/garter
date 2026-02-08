@@ -1882,7 +1882,7 @@ let compile_prog (anfed, (env : arg name_envt name_envt)) =
 
 let run_if should_run f = if should_run then f else no_op_phase
 
-let compile_to_string ?(no_builtins = false) (prog : sourcespan program pipeline)
+let compile_to_string ?(no_builtins = false) ?(typecheck = true) (prog : sourcespan program pipeline)
     : string pipeline
   =
   let init_prog =
@@ -1890,6 +1890,7 @@ let compile_to_string ?(no_builtins = false) (prog : sourcespan program pipeline
   in
   init_prog
   |> add_err_phase well_formed is_well_formed
+  |> run_if typecheck (add_err_phase type_checked Infer.type_check_program)
   |> run_if (not no_builtins) (add_phase add_natives add_native_lambdas)
   |> add_phase desugared desugar
   |> add_phase tagged tag

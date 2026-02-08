@@ -18,7 +18,10 @@
   stringSet
   lexer
   parser
-  cli)
+  cli
+  types
+  unify
+  infer)
  (libraries ounit2 extlib unix str)
  (wrapped false))
 

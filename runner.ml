@@ -27,7 +27,7 @@ let parse (name : string) lexbuf : sourcespan program  =
      else
        let bt = Printexc.get_raw_backtrace () in
        Printexc.raise_with_backtrace exn bt (* make sure we throw with the same stack trace *)
-  | Parsing.Parse_error ->
+  | Parser.Error ->
      begin
        let curr = lexbuf.Lexing.lex_curr_p in
        let line = curr.Lexing.pos_lnum in
@@ -52,16 +52,16 @@ let parse_file (name : string) input_file : sourcespan program =
   let lexbuf = Lexing.from_channel input_file in
   parse name lexbuf
 
-let compile_string_to_string ?no_builtins:(no_builtins=false) (name : string) (input : string) : string pipeline =
+let compile_string_to_string ?no_builtins:(no_builtins=false) ?no_typecheck:(no_typecheck=false) (name : string) (input : string) : string pipeline =
   (Ok(input, [])
    |> add_phase source (fun x -> x)
    |> add_err_phase parsed (fun input ->
           try Ok(parse_string name input)
           with err -> Error([err])))
-  |> compile_to_string ~no_builtins:no_builtins;;
+  |> compile_to_string ~no_builtins:no_builtins ~typecheck:(not no_typecheck);;
 
-let compile_file_to_string ?no_builtins:(no_builtins=false) (name : string) (input_file : string) : string pipeline =
-  compile_string_to_string ~no_builtins:no_builtins name (string_of_file input_file)
+let compile_file_to_string ?no_builtins:(no_builtins=false) ?no_typecheck:(no_typecheck=false) (name : string) (input_file : string) : string pipeline =
+  compile_string_to_string ~no_builtins:no_builtins ~no_typecheck:no_typecheck name (string_of_file input_file)
 
 let make_tmpfiles (name : string) (std_input : string) =
   let (stdin_read, stdin_write) = pipe() in

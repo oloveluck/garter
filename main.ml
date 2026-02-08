@@ -13,11 +13,11 @@ let find_phase_in_trace (trace : phase list) (matcher : phase -> 'a option) :
   List.find_map matcher trace
 
 (* Compile subcommand implementation *)
-let compile_to_asm file trace no_builtins debug dump_parsed dump_anf
+let compile_to_asm file trace no_builtins no_typecheck debug dump_parsed dump_anf
     dump_located =
   show_debug_print := debug;
   let sep = "\n=================\n" in
-  match compile_file_to_string ~no_builtins file file with
+  match compile_file_to_string ~no_builtins ~no_typecheck file file with
   | Error (errs, trace_result) ->
     if trace
     then eprintf "%s%s" (ExtString.String.join sep (print_trace trace_result)) sep
@@ -121,6 +121,10 @@ let no_builtins_arg =
   Arg.(
     value & flag & info [ "no-builtins" ] ~doc:"Leave out all built-in functions")
 
+let no_typecheck_arg =
+  Arg.(
+    value & flag & info [ "no-typecheck" ] ~doc:"Disable Hindley-Milner type checking")
+
 let debug_arg =
   Arg.(value & flag & info [ "d"; "debug" ] ~doc:"Enable debug printing")
 
@@ -139,8 +143,9 @@ let dump_located_arg =
 (* Compile subcommand term *)
 let compile_term =
   Term.(
-    const compile_to_asm $ file_arg $ trace_arg $ no_builtins_arg $ debug_arg
-    $ dump_parsed_arg $ dump_anf_arg $ dump_located_arg)
+    const compile_to_asm $ file_arg $ trace_arg $ no_builtins_arg
+    $ no_typecheck_arg $ debug_arg $ dump_parsed_arg $ dump_anf_arg
+    $ dump_located_arg)
 
 let compile_cmd =
   let doc = "Compile a Garter source file to assembly" in

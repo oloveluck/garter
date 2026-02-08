@@ -1,0 +1,51 @@
+{
+  "name": "garter-lang",
+  "displayName": "Garter Language",
+  "description": "Language support for the Garter programming language",
+  "version": "0.1.0",
+  "publisher": "garter",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:garter"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "garter",
+        "aliases": ["Garter", "garter"],
+        "extensions": [".garter"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "garter",
+        "scopeName": "source.garter",
+        "path": "./syntaxes/garter.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Garter",
+      "properties": {
+        "garter.serverPath": {
+          "type": "string",
+          "default": "garter-lsp",
+          "description": "Path to the garter-lsp binary"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.3.0"
+  }
+}
