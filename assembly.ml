@@ -46,6 +46,8 @@ type instruction =
   | IAdd of arg * arg
   | ISub of arg * arg
   | IMul of arg * arg
+  | ICqo                    (* Sign-extend RAX into RDX:RAX for IDIV *)
+  | IIDiv of arg            (* Signed divide RDX:RAX by arg, quotient→RAX, remainder→RDX *)
 
   | IShl of arg * arg
   | IShr of arg * arg
@@ -132,6 +134,9 @@ let rec i_to_asm (i : instruction) : string =
      sprintf "  sub %s, %s" (arg_to_asm dest) (arg_to_asm to_sub)
   | IMul(dest, to_mul) ->
      sprintf "  imul %s, %s" (arg_to_asm dest) (arg_to_asm to_mul)
+  | ICqo -> "  cqo"
+  | IIDiv(arg) ->
+     sprintf "  idiv %s" (arg_to_asm arg)
   | ICmp(left, right) ->
      sprintf "  cmp %s, %s" (arg_to_asm left) (arg_to_asm right)
   | ILabel(name) ->

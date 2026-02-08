@@ -1,0 +1,4 @@
+version = 0.26.2
+profile = default
+break-cases = fit
+if-then-else = keyword-first

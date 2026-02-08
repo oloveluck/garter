@@ -270,6 +270,22 @@ let reg_tests =
   ; terr "type_err_or" "false || 5" "" "logic expected a boolean"
   ; terr "type_err_if" "if 1: 2 else: 3" "" "if expected a boolean"
   ; terr "type_err_cmp" "1 < true" "" "comparison expected a number"
+  (* Division and modulo tests *)
+  ; t "div1" "10 / 2" "" "5"
+  ; t "div2" "17 / 5" "" "3"
+  ; t "div3" "100 / 10" "" "10"
+  ; t "div_neg1" "(-10) / 2" "" "-5"
+  ; t "div_neg2" "10 / (-2)" "" "-5"
+  ; t "div_neg3" "(-10) / (-2)" "" "5"
+  ; t "mod1" "10 % 3" "" "1"
+  ; t "mod2" "17 % 5" "" "2"
+  ; t "mod3" "100 % 7" "" "2"
+  ; t "mod_neg1" "(-10) % 3" "" "-1"
+  ; t "divmod_expr" "let x = 17 in let y = 5 in (x / y, x % y)" "" "(3, 2)"
+  ; terr "div_zero" "5 / 0" "" "division by zero"
+  ; terr "mod_zero" "5 % 0" "" "division by zero"
+  ; terr "div_type_err" "5 / true" "" "arithmetic expected a number"
+  ; terr "mod_type_err" "true % 3" "" "arithmetic expected a number"
   ]
 ;;
 

@@ -90,6 +90,8 @@ rule token = parse
   | "+" { PLUS }
   | "-" { MINUS }
   | "*" { TIMES }
+  | "/" { DIV }
+  | "%" { MOD }
   | ":=" { COLONEQ }
   | "==" { EQEQ }
   | ">" { GREATER }

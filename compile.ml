@@ -48,6 +48,7 @@ let err_SET_LOW_INDEX = 12L
 let err_SET_HIGH_INDEX = 13L
 let err_CALL_NOT_CLOSURE = 14L
 let err_CALL_ARITY_ERR = 15L
+let err_DIV_BY_ZERO = 16L
 let dummy_span = Lexing.dummy_pos, Lexing.dummy_pos
 let first_six_args_registers = [ RDI; RSI; RDX; RCX; R8; R9 ]
 let heap_reg = R15
@@ -1284,6 +1285,45 @@ and compile_prim2
     @ [ ISar (Reg RAX, Const 1L) ]
     @ [ IMul (Reg RAX, Reg RDX) ]
     @ [ IJo (error_code_to_label err_OVERFLOW) ]
+  | Div ->
+    (* Compile operands and check they're numbers *)
+    compile_imm e1 funname env
+    @ check_is_number err_ARITH_NOT_NUM
+    @ [ IMov (Reg RDX, Reg RAX) ]           (* Save dividend in RDX temporarily *)
+    @ compile_imm e2 funname env
+    @ check_is_number err_ARITH_NOT_NUM
+    @ [ IMov (Reg scratch_reg, Reg RAX) ]   (* Save divisor for error reporting *)
+    (* Check for divide by zero *)
+    @ [ ICmp (Reg RAX, Const 0L) ]
+    @ [ IJe (Label "?err_div_by_zero") ]
+    (* Perform division: RAX = RDX / RAX *)
+    @ [ ISar (Reg RDX, Const 1L) ]          (* Remove tag from dividend *)
+    @ [ ISar (Reg RAX, Const 1L) ]          (* Remove tag from divisor *)
+    @ [ IMov (Reg scratch_reg, Reg RAX) ]   (* Save divisor in R11 *)
+    @ [ IMov (Reg RAX, Reg RDX) ]           (* Move dividend to RAX *)
+    @ [ ICqo ]                              (* Sign-extend RAX into RDX:RAX *)
+    @ [ IIDiv (Reg scratch_reg) ]           (* Divide, quotient in RAX *)
+    @ [ IShl (Reg RAX, Const 1L) ]          (* Re-add tag to result *)
+  | Mod ->
+    (* Same setup as Div *)
+    compile_imm e1 funname env
+    @ check_is_number err_ARITH_NOT_NUM
+    @ [ IMov (Reg RDX, Reg RAX) ]
+    @ compile_imm e2 funname env
+    @ check_is_number err_ARITH_NOT_NUM
+    @ [ IMov (Reg scratch_reg, Reg RAX) ]
+    (* Check for divide by zero *)
+    @ [ ICmp (Reg RAX, Const 0L) ]
+    @ [ IJe (Label "?err_div_by_zero") ]
+    (* Perform division, remainder ends up in RDX *)
+    @ [ ISar (Reg RDX, Const 1L) ]
+    @ [ ISar (Reg RAX, Const 1L) ]
+    @ [ IMov (Reg scratch_reg, Reg RAX) ]
+    @ [ IMov (Reg RAX, Reg RDX) ]
+    @ [ ICqo ]
+    @ [ IIDiv (Reg scratch_reg) ]
+    @ [ IMov (Reg RAX, Reg RDX) ]           (* Move remainder to RAX *)
+    @ [ IShl (Reg RAX, Const 1L) ]          (* Re-add tag to result *)
   | And ->
     let false_label = sprintf "false#%d" tag in
     let done_label = sprintf "done#%d" tag in
@@ -1780,7 +1820,8 @@ let compile_prog (anfed, (env : arg name_envt name_envt)) =
        ?err_set_low_index:%s\n\
        ?err_set_high_index:%s\n\
        ?err_call_not_closure:%s\n\
-       ?err_call_arity_err:%s\n"
+       ?err_call_arity_err:%s\n\
+       ?err_div_by_zero:%s\n"
       (to_asm (native_call (Label "?error") [ Const err_COMP_NOT_NUM; Reg scratch_reg ]))
       (to_asm (native_call (Label "?error") [ Const err_ARITH_NOT_NUM; Reg scratch_reg ]))
       (to_asm
@@ -1800,6 +1841,8 @@ let compile_prog (anfed, (env : arg name_envt name_envt)) =
          (native_call (Label "?error") [ Const err_CALL_NOT_CLOSURE; Reg scratch_reg ]))
       (to_asm
          (native_call (Label "?error") [ Const err_CALL_ARITY_ERR; Reg scratch_reg ]))
+      (to_asm
+         (native_call (Label "?error") [ Const err_DIV_BY_ZERO; Reg scratch_reg ]))
   in
   match anfed with
   | AProgram (body, _) ->

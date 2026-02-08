@@ -17,7 +17,8 @@
   runner
   stringSet
   lexer
-  parser)
+  parser
+  cli)
  (libraries ounit2 extlib unix str)
  (wrapped false))
 
@@ -29,8 +30,9 @@
 
 (executable
  (name main)
+ (public_name garter)
  (modules main)
- (libraries garter_impl))
+ (libraries garter_impl cmdliner))
 
 (test
  (name test)
@@ -40,4 +42,4 @@
 (env
  (dev
   (flags
-   (:standard -w +a-4-9-27-33-40-42-44-48-70))))
+   (:standard -w +a-4-9-27-32-33-40-42-44-48-70))))

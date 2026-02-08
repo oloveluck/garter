@@ -1,0 +1,16 @@
+[package]
+name = "garter-runtime"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "garter_runtime"
+crate-type = ["staticlib"]
+
+[[bin]]
+name = "garter"
+path = "src/bin/garter.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
