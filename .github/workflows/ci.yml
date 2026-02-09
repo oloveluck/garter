@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm clang
+
+      - name: Setup OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.2.x
+
+      - name: Install OCaml dependencies
+        run: opam install . --deps-only --with-test -y
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: runtime/target/
+          key: rust-${{ runner.os }}-${{ hashFiles('runtime/Cargo.lock') }}
+          restore-keys: rust-${{ runner.os }}-
+
+      - name: Build runtime
+        run: make runtime
+
+      - name: Build compiler
+        run: make main
+
+      - name: Build tests
+        run: make test
+
+      - name: Run unit tests
+        run: ./test
+
+      - name: Run example programs
+        run: |
+          PASS=0; FAIL=0
+          for f in input/*.garter; do
+            name=$(basename "$f" .garter)
+            if [ "$name" = "err_high" ]; then continue; fi
+            echo "::group::$name"
+            mkdir -p output
+            if ./main "$f" > "output/${name}.s" 2>&1; then
+              if nasm -f elf64 -o "output/${name}.o" "output/${name}.s" && \
+                 clang -mstackrealign -m64 -g -o "output/${name}.run" "output/${name}.o" \
+                   runtime/target/x86_64-unknown-linux-gnu/release/libgarter_runtime.a -lpthread -ldl; then
+                if timeout 30 "output/${name}.run" 10000; then
+                  echo "PASS: $name"
+                  PASS=$((PASS + 1))
+                else
+                  echo "FAIL (runtime): $name"
+                  FAIL=$((FAIL + 1))
+                fi
+              else
+                echo "FAIL (link): $name"
+                FAIL=$((FAIL + 1))
+              fi
+            else
+              echo "FAIL (compile): $name"
+              FAIL=$((FAIL + 1))
+            fi
+            echo "::endgroup::"
+          done
+          echo "$PASS passed, $FAIL failed"
+          [ "$FAIL" -eq 0 ]
+
+      - name: Build LSP
+        run: make lsp
