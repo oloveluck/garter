@@ -18,9 +18,9 @@ exception LetRecNonFunction of sourcespan bind * sourcespan (* name binding, whe
 exception ShouldBeFunction of string * sourcespan (* name, where defined, actual typ *)
 exception DeclArity of string * int * int * sourcespan (* name, num args, num types, where defined *)
 exception TypeError of string * sourcespan (* message, where *)
+exception TypeWarning of string * sourcespan (* message, where *)
 
 
-  
 
 (* Stringifies a list of compilation errors *)
 let print_errors (exns : exn list) : string list =
@@ -62,6 +62,8 @@ let print_errors (exns : exn list) : string list =
            (string_of_sourcespan loc) (string_of_bind bind)
       | TypeError(msg, loc) ->
          sprintf "Type error at <%s>: %s" (string_of_sourcespan loc) msg
+      | TypeWarning(msg, loc) ->
+         sprintf "Type warning at <%s>: %s" (string_of_sourcespan loc) msg
       | _ ->
          sprintf "%s" (Printexc.to_string e)
     ) exns

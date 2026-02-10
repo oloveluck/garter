@@ -1,0 +1,7 @@
+def test2(acc, xs):
+  match xs:
+    | nil => acc
+    | (h, t) => test2(acc + h, t)
+
+print(test2(0, (1, (2, (3, nil)))));
+42

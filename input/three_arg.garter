@@ -1,0 +1,7 @@
+def test3(a, b, c):
+  match c:
+    | nil => b
+    | (h, t) => test3(a, b + h, t)
+
+print(test3(0, 0, (1, (2, (3, nil)))));
+42

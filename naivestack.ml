@@ -37,7 +37,7 @@ let rec deepest_stack e (env : naive_stack_env) funname =
     | ALet (name, bind, body, _) ->
       List.fold_left max 0 [ name_to_offset name; helpC bind; helpA body ]
     | ALetRec (binds, body, _) ->
-      List.fold_left max (helpA body) (List.map (fun (_, bind) -> helpC bind) binds)
+      List.fold_left max (helpA body) (List.map (fun (name, bind) -> max (name_to_offset name) (helpC bind)) binds)
     | ASeq (first, rest, _) -> max (helpC first) (helpA rest)
     | ACExpr e -> helpC e
   and helpC e =
@@ -45,7 +45,7 @@ let rec deepest_stack e (env : naive_stack_env) funname =
     | CIf (c, t, f, _) -> List.fold_left max 0 [ helpI c; helpA t; helpA f ]
     | CPrim1 (_, i, _) -> helpI i
     | CPrim2 (_, i1, i2, _) -> max (helpI i1) (helpI i2)
-    | CApp (_, args, _, _) -> List.fold_left max 0 (List.map helpI args)
+    | CApp (func, args, _, _) -> List.fold_left max 0 (helpI func :: List.map helpI args)
     | CTuple (vals, _) -> List.fold_left max 0 (List.map helpI vals)
     | CGetItem (t, _, _) -> helpI t
     | CSetItem (t, _, v, _) -> max (helpI t) (helpI v)

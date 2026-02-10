@@ -1098,9 +1098,16 @@ and compile_fun
   =
   let closure = CLambda (args, expr, 0) in
   let prelude = function_prelude (deepest_stack expr env funname) in
+  let num_args = List.length args in
   ( prelude
-  , compile_cexpr closure funname env (List.length args) false
+  , compile_cexpr closure funname env num_args false 0
+    (* Push dummy args and closure pointer so TCO has a proper stack frame.
+       Without this, tail calls with num_args arguments would overwrite the
+       caller's return address. *)
+    @ (replicate [ IPush (Const 0L) ] num_args |> List.flatten)
+    @ [ IPush (Reg RAX) ]
     @ [ ICall (Label "temp_closure_0") ]
+    @ [ IAdd (Reg RSP, Const (Int64.of_int ((num_args + 1) * word_size))) ]
   , function_postlude )
 
 and compile_aexpr
@@ -1109,15 +1116,16 @@ and compile_aexpr
     (env : naive_stack_env)
     (num_args : int)
     (is_tail : bool)
+    (stack_depth : int)
     : instruction list
   =
   match e with
   | ALet (name, value, body, tag) ->
     (* Value is NOT in tail position, body inherits tail position *)
-    compile_cexpr value funname env num_args false
+    compile_cexpr value funname env num_args false stack_depth
     @ [ IMov (lookup funname name env, Reg RAX) ]
-    @ compile_aexpr body funname env num_args is_tail
-  | ACExpr c -> compile_cexpr c funname env num_args is_tail
+    @ compile_aexpr body funname env num_args is_tail stack_depth
+  | ACExpr c -> compile_cexpr c funname env num_args is_tail stack_depth
   | ALetRec (bindings, body, tag) ->
     (* For mutually recursive closures:
        1. First, create all closures (sibling refs may contain garbage initially)
@@ -1128,7 +1136,7 @@ and compile_aexpr
     let create_closures =
       List.map
         (fun (name, value) ->
-          compile_cexpr value funname env num_args false
+          compile_cexpr value funname env num_args false stack_depth
           @ [ IMov (lookup funname name env, Reg RAX) ])
         bindings
       |> List.flatten
@@ -1162,11 +1170,11 @@ and compile_aexpr
       |> List.flatten
     in
     create_closures @ patch_closures
-    @ compile_aexpr body funname env num_args is_tail
+    @ compile_aexpr body funname env num_args is_tail stack_depth
   | ASeq (first, rest, tag) ->
     (* First is NOT in tail position, rest inherits tail position *)
-    compile_cexpr first funname env num_args false
-    @ compile_aexpr rest funname env num_args is_tail
+    compile_cexpr first funname env num_args false stack_depth
+    @ compile_aexpr rest funname env num_args is_tail stack_depth
 
 
 and compile_native_app
@@ -1423,14 +1431,15 @@ and compile_cexpr
     (env : naive_stack_env)
     (num_args : int)
     (is_tail : bool)
+    (stack_depth : int)
     : instruction list
   =
   match e with
   | CIf (cond, _then, _else, tag) ->
     let else_label = sprintf "else#%d" tag in
     let done_label = sprintf "done#%d" tag in
-    let c_then = compile_aexpr _then funname env num_args is_tail in
-    let c_else = compile_aexpr _else funname env num_args is_tail in
+    let c_then = compile_aexpr _then funname env num_args is_tail stack_depth in
+    let c_else = compile_aexpr _else funname env num_args is_tail stack_depth in
     let c_cond = compile_imm cond funname env in
     c_cond
     @ check_is_bool err_IF_NOT_BOOL
@@ -1544,14 +1553,20 @@ and compile_cexpr
     let num_frees = List.length frees in
     let heap_offset = 24 + (num_frees * 8) + if num_frees mod 2 = 0 then 8 else 0 in
     let body_stack_depth = deepest_stack body env closure_name in
-    let stack_depth = max body_stack_depth num_frees in
+    let num_binds = List.length binds in
+    (* TCO scratch locations are placed AFTER all local variable slots to
+       avoid overlapping with register-allocated stack variables.
+       Slots body_stack_depth+1 .. body_stack_depth+num_binds for arg scratch,
+       slot body_stack_depth+num_binds+1 for closure scratch *)
+    let tco_scratch_depth = if num_binds > 0 then body_stack_depth + num_binds + 1 else 0 in
+    let frame_depth = List.fold_left max 0 [body_stack_depth; num_frees; tco_scratch_depth] in
     [ IJmp (Label after) ]
     @ [ ILabel name ]
     (* body preamble *)
     @ [ IPush (Reg RBP) ]
     @ [ IMov (Reg RBP, Reg RSP) ]
     (* allocate space for local variables *)
-    @ [ ISub (Reg RSP, Const (Int64.of_int (8 * stack_depth))) ]
+    @ [ ISub (Reg RSP, Const (Int64.of_int (8 * frame_depth))) ]
     (* move self arg into R11 *)
     @ [ IMov (Reg R11, RegOffset (16, RBP)) ]
     (* untag the self argument *)
@@ -1569,7 +1584,7 @@ and compile_cexpr
     (* body *)
     @ [ ILineComment "body start" ]
     @ [ ILineComment (sprintf "env : %s" (dump env)) ]
-    @ compile_aexpr body (sprintf "closure#%d" tag) env (List.length binds) true
+    @ compile_aexpr body (sprintf "closure#%d" tag) env (List.length binds) true body_stack_depth
     @ [ ILineComment "body end" ]
     (* / body *)
     (* body postamble *)
@@ -1639,29 +1654,31 @@ and compile_cexpr
       if is_tail && num_call_args = num_args then
         (* Tail call optimization: reuse current stack frame *)
         check_closure_and_arity
-        @ [ ILineComment "TCO: save closure to scratch" ]
-        @ [ IMov (Reg R12, Reg RAX) ]  (* Save closure in R12 *)
+        @ [ ILineComment "TCO: save closure to stack scratch" ]
+        (* Save closure to a stack scratch slot beyond all local variable slots
+           and arg scratch slots, so it doesn't clobber any variables. *)
+        @ [ IMov (RegOffset (~-8 * (stack_depth + num_args + 1), RBP), Reg RAX) ]
         (* Evaluate all arguments and store them in scratch locations on the stack *)
         @ [ ILineComment "TCO: evaluate args to scratch locations" ]
         @ (List.mapi
              (fun i arg ->
                compile_imm arg funname env
-               @ [ IMov (RegOffset (~-8 * (num_args + i + 2), RBP), Reg RAX) ])
+               @ [ IMov (RegOffset (~-8 * (stack_depth + i + 1), RBP), Reg RAX) ])
              args
           |> List.flatten)
         (* Move arguments from scratch to caller's parameter positions *)
         @ [ ILineComment "TCO: move args to caller's param positions" ]
         @ (List.mapi
              (fun i _ ->
-               [ IMov (Reg RAX, RegOffset (~-8 * (num_args + i + 2), RBP))
+               [ IMov (Reg RAX, RegOffset (~-8 * (stack_depth + i + 1), RBP))
                ; IMov (RegOffset (24 + (i * 8), RBP), Reg RAX) ])
              args
           |> List.flatten)
-        (* Move closure to self position *)
+        (* Move closure from stack scratch to self position *)
         @ [ ILineComment "TCO: move closure to self position" ]
-        @ [ IMov (RegOffset (16, RBP), Reg R12) ]
+        @ [ IMov (Reg RAX, RegOffset (~-8 * (stack_depth + num_args + 1), RBP)) ]
+        @ [ IMov (RegOffset (16, RBP), Reg RAX) ]
         (* Get code pointer *)
-        @ [ IMov (Reg RAX, Reg R12) ]
         @ [ IMov (Reg RAX, RegOffset (3, RAX)) ]  (* code pointer at offset 8, minus tag 5 = 3 *)
         (* Restore frame and jump *)
         @ [ ILineComment "TCO: restore frame and jump" ]
@@ -1669,8 +1686,12 @@ and compile_cexpr
         @ [ IPop (Reg RBP) ]
         @ [ IJmp (Reg RAX) ]
       else
-        (* Regular call *)
+        (* Regular call - save callee-saved registers around the call since
+           our compiled functions use R12-R14/RBX for register allocation
+           but don't save/restore them in their prologues. *)
         check_closure_and_arity
+        @ [ ILineComment "save callee-saved regs" ]
+        @ [ IPush (Reg RBX); IPush (Reg R12); IPush (Reg R13); IPush (Reg R14) ]
         @ [ ILineComment "push args onto stack" ]
         @ (List.rev args
           |> List.map (fun arg -> compile_imm arg funname env @ [ IPush (Reg RAX) ])
@@ -1680,7 +1701,9 @@ and compile_cexpr
         @ [ IPush (Reg RAX) ]
         @ [ ILineComment "call function" ]
         @ [ ICall (RegOffset (3, RAX)) ]
-        @ [ IAdd (Reg RSP, Const (Int64.of_int ((num_call_args + 1) * 8))) ])
+        @ [ IAdd (Reg RSP, Const (Int64.of_int ((num_call_args + 1) * 8))) ]
+        @ [ ILineComment "restore callee-saved regs" ]
+        @ [ IPop (Reg R14); IPop (Reg R13); IPop (Reg R12); IPop (Reg RBX) ])
 
 and compile_imm (e : tag immexpr) (funname : string) (env : naive_stack_env)
     : instruction list

@@ -1,0 +1,9 @@
+def test(xs):
+  match xs:
+    | nil => 0
+    | (h, t) => h
+
+let nums = (1, (2, nil)) in
+print(test(nums));
+print(test(nil));
+42

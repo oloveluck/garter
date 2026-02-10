@@ -7,6 +7,7 @@ let rec occurs_in (v : tyvar) (t : ty) : bool =
   match t with
   | TyInt | TyBool | TyString | TyNil -> false
   | TyVar v' -> v = v'
+  | TyList elem -> occurs_in v elem
   | TyTuple tys -> List.exists (occurs_in v) tys
   | TyArrow (args, ret) -> List.exists (occurs_in v) args || occurs_in v ret
 
@@ -24,12 +25,13 @@ let rec unify (t1 : ty) (t2 : ty) (loc : Exprs.sourcespan) : subst =
   | TyVar v, t | t, TyVar v ->
     if TyVar v = t then []
     else if occurs_in v t then
-      raise
-        (UnifyError
-           ( sprintf "Occurs check: %s occurs in %s" (string_of_ty (TyVar v))
-               (string_of_ty t)
-           , loc ))
+      raise (UnifyError (
+        sprintf "Infinite type: %s occurs in %s"
+          (string_of_ty (TyVar v)) (string_of_ty t), loc))
     else [(v, t)]
+  | TyNil, t | t, TyNil when (match t with TyArrow _ -> false | _ -> true) ->
+    (* nil is compatible with any non-function type in this dynamically-typed language *)
+    []
   | TyTuple tys1, TyTuple tys2 ->
     if List.length tys1 <> List.length tys2 then
       raise
@@ -38,6 +40,12 @@ let rec unify (t1 : ty) (t2 : ty) (loc : Exprs.sourcespan) : subst =
                (string_of_ty t1) (string_of_ty t2)
            , loc ))
     else unify_many tys1 tys2 loc
+  | TyList a, TyList b -> unify a b loc
+  | TyNil, TyList _ | TyList _, TyNil -> []
+  | TyList elem, TyTuple [hd; tl] | TyTuple [hd; tl], TyList elem ->
+    let s1 = unify hd elem loc in
+    let s2 = unify (apply_subst s1 tl) (apply_subst s1 (TyList elem)) loc in
+    compose_subst s2 s1
   | TyArrow (args1, ret1), TyArrow (args2, ret2) ->
     if List.length args1 <> List.length args2 then
       raise

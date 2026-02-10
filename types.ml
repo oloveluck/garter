@@ -7,6 +7,7 @@ type ty =
   | TyBool
   | TyString
   | TyNil
+  | TyList of ty
   | TyTuple of ty list
   | TyArrow of ty list * ty
   | TyVar of tyvar
@@ -30,6 +31,7 @@ let rec apply_subst (s : subst) (t : ty) : ty =
     (match List.assoc_opt v s with
      | Some t' -> apply_subst s t'
      | None -> t)
+  | TyList elem -> TyList (apply_subst s elem)
   | TyTuple tys -> TyTuple (List.map (apply_subst s) tys)
   | TyArrow (args, ret) ->
     TyArrow (List.map (apply_subst s) args, apply_subst s ret)
@@ -46,6 +48,7 @@ let rec ftv_ty (t : ty) : tyvar list =
   match t with
   | TyInt | TyBool | TyString | TyNil -> []
   | TyVar v -> [v]
+  | TyList elem -> ftv_ty elem
   | TyTuple tys -> List.concat_map ftv_ty tys
   | TyArrow (args, ret) -> List.concat_map ftv_ty args @ ftv_ty ret
 
@@ -62,6 +65,7 @@ let rec string_of_ty (t : ty) : string =
   | TyBool -> "Bool"
   | TyString -> "String"
   | TyNil -> "Nil"
+  | TyList elem -> sprintf "List(%s)" (string_of_ty elem)
   | TyVar v -> sprintf "'t%d" v
   | TyTuple tys ->
     sprintf "(%s)" (String.concat ", " (List.map string_of_ty tys))

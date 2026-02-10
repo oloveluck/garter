@@ -1,0 +1,14 @@
+def f(x):
+  match x:
+    | 0 => "f-done"
+    | _ => g(x - 1)
+and def g(x):
+  match x:
+    | 0 => "g-done"
+    | _ => h(x - 1)
+and def h(x):
+  match x:
+    | 0 => "h-done"
+    | _ => f(x - 1)
+
+f(10)

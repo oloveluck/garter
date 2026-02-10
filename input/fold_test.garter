@@ -1,0 +1,7 @@
+def foldl(f, z, xs):
+  match xs:
+    | nil => z
+    | (h, t) => foldl(f, f(z, h), t)
+
+let nums = (1, (2, (3, nil))) in
+print(foldl((lambda (acc, x): acc + x), 0, nums))

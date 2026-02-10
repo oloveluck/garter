@@ -1,0 +1,6 @@
+def f(x, y):
+  if x == 0: y
+  else: 
+    let r = f(x - 1, y + x) in r
+
+f(3, 0)

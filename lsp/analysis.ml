@@ -49,8 +49,9 @@ let analyze ~(uri : string) ~(source : string) : analysis_result =
            diagnostics = warning_diags @ List.map Span_utils.diagnostic_of_exn exns;
            type_env = None;
            final_subst = None }
-       | Ok (_typed_prog, subst, env) ->
+       | Ok (_typed_prog, subst, env, tc_warnings) ->
+         let tc_warning_diags = List.map Span_utils.diagnostic_of_exn tc_warnings in
          { program = Some wf_prog;
-           diagnostics = warning_diags;
+           diagnostics = warning_diags @ tc_warning_diags;
            type_env = Some env;
            final_subst = Some subst })

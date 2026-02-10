@@ -193,13 +193,13 @@ let reg_tests =
       "true"
   ; t "add1" "let x = 1 in x + x" "" "2"
   ; t "and2" "true && true" "" "true"
-  (* Tuple bounds checking tests - fixed *)
-  ; terr "err_high" "let x = (1, 2, 3) in x[3]" "" "Tuple index 3 out of bounds"
-  ; terr "err_low" "let x = (1, 2, 3) in x[-1]" "" "Tuple index -1 out of bounds"
+  (* Tuple bounds checking tests - runtime errors (type checker now advisory) *)
+  ; terr "err_high" "let x = (1, 2, 3) in x[3]" "" "index too large"
+  ; terr "err_low" "let x = (1, 2, 3) in x[-1]" "" "index too small"
   ; terr "err_nil_deref" "let x = nil in x[0]" "" "tried to access component of nil"
-  ; terr "calling_nonfunction1" "4(3)" "" "Cannot unify Int with"
-  ; terr "calling_nonfunction2" "true(3)" "" "Cannot unify Bool with"
-  ; terr "calling_nonfunction3" "nil(3)" "" "Cannot unify Nil with"
+  ; terr "calling_nonfunction1" "4(3)" "" "tried to call a non-closure value"
+  ; terr "calling_nonfunction2" "true(3)" "" "tried to call a non-closure value"
+  ; terr "calling_nonfunction3" "nil(3)" "" "tried to call a non-closure value"
   ; t "destructure" "let (a, b) = (1, 2) in a" "" "1"
   ; t "destructure_2" "let (a, (b, c)) = (1, (2, 3)) in c" "" "3"
   ; (* Some useful if tests to start you off *)
@@ -208,7 +208,7 @@ let reg_tests =
   ; terr "overflow" "add1(5073741823000000000)" "" "overflow"
   ; t "l1" "let add = (lambda (x, y): x + y) in\nadd(5, 6)" "" "11"
   ; t "l2" "let z = 5 in let add = (lambda (x, y): x + y) in\nadd(5, 6)" "" "11"
-  ; terr "arity_mismatch" "(lambda(x): x)(1, 2)" "" "Function expects 1 arguments, got 2"
+  ; terr "arity_mismatch" "(lambda(x): x)(1, 2)" "" "arity mismatch"
   ; t "l3" "let z = 1 in let add = (lambda (x, y): x + y + z) in\nadd(5, 6)" "" "12"
   ; t "fact" "def fact(n): if n < 2: 1 else: n * fact(n - 1)\n\nfact(5)" "" "120"
   ; t "print1" "print(2) + print(3)" "" "2\n3\n5"
@@ -261,14 +261,14 @@ let reg_tests =
   ; t "isnum_zero" "isnum(0)" "" "true"
   ; t "isbool_and" "isbool(true && false)" "" "true"
   ; t "istuple_nil" "istuple(nil)" "" "false"
-  (* Error: type errors in operations - now caught at compile time by type checker *)
-  ; terr "type_err_plus" "1 + true" "" "Cannot unify Bool with Int"
-  ; terr "type_err_minus" "true - 1" "" "Cannot unify Bool with Int"
-  ; terr "type_err_times" "false * 2" "" "Cannot unify Bool with Int"
-  ; terr "type_err_and" "1 && true" "" "Cannot unify Int with Bool"
-  ; terr "type_err_or" "false || 5" "" "Cannot unify Int with Bool"
-  ; terr "type_err_if" "if 1: 2 else: 3" "" "Cannot unify Int with Bool"
-  ; terr "type_err_cmp" "1 < true" "" "Cannot unify Bool with Int"
+  (* Type errors are now warnings; programs compile and hit runtime errors *)
+  ; terr "type_err_plus" "1 + true" "" "arithmetic expected a number"
+  ; terr "type_err_minus" "true - 1" "" "arithmetic expected a number"
+  ; terr "type_err_times" "false * 2" "" "arithmetic expected a number"
+  ; terr "type_err_and" "1 && true" "" "logic expected a boolean"
+  ; terr "type_err_or" "false || 5" "" "logic expected a boolean"
+  ; terr "type_err_if" "if 1: 2 else: 3" "" "if expected a boolean"
+  ; terr "type_err_cmp" "1 < true" "" "comparison expected a number"
   (* Division and modulo tests *)
   ; t "div1" "10 / 2" "" "5"
   ; t "div2" "17 / 5" "" "3"
@@ -283,8 +283,8 @@ let reg_tests =
   ; t "divmod_expr" "let x = 17 in let y = 5 in (x / y, x % y)" "" "(3, 2)"
   ; terr "div_zero" "5 / 0" "" "division by zero"
   ; terr "mod_zero" "5 % 0" "" "division by zero"
-  ; terr "div_type_err" "5 / true" "" "Cannot unify Bool with Int"
-  ; terr "mod_type_err" "true % 3" "" "Cannot unify Bool with Int"
+  ; terr "div_type_err" "5 / true" "" "arithmetic expected a number"
+  ; terr "mod_type_err" "true % 3" "" "arithmetic expected a number"
   ]
 ;;
 

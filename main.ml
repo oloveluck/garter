@@ -22,10 +22,18 @@ let compile_to_asm file trace no_builtins no_typecheck debug dump_parsed dump_an
     if trace
     then eprintf "%s%s" (ExtString.String.join sep (print_trace trace_result)) sep
     else ();
-    eprintf "Errors:\n";
-    eprintf "%s\n" (ExtString.String.join "\n" (print_errors errs));
+    let source = match Diagnostics.source_from_trace trace_result with
+      | Some s -> s | None -> "" in
+    eprintf "%s" (Diagnostics.format_errors source errs);
     1
   | Ok (program, trace_result) ->
+    (* Display type warnings on stderr *)
+    let type_warnings = Infer.get_warnings () in
+    if type_warnings <> [] then begin
+      let source = match Diagnostics.source_from_trace trace_result with
+        | Some s -> s | None -> "" in
+      eprintf "%s" (Diagnostics.format_errors source type_warnings)
+    end;
     if dump_parsed
     then
       let parsed =

@@ -130,7 +130,7 @@ module StringMap = Map.Make (String)
 
 type color_mapping = int StringMap.t
 
-let our_regs = [ Reg R10; Reg R12; Reg R13; Reg R14; Reg RBX ]
+let our_regs = [ Reg R12; Reg R13; Reg R14; Reg RBX ]
 
 let color_graph (g : grapht) : arg name_envt =
   let rec smallest_deg_node (g : grapht) : (string * neighborst) * grapht =

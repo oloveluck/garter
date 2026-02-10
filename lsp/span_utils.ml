@@ -78,6 +78,10 @@ let diagnostic_of_exn (e : exn) : Lsp_types.Diagnostic.t =
   | TypeError (msg, loc) ->
     make_diag (sourcespan_to_range loc)
       (sprintf "Type error: %s" msg)
+  | TypeWarning (msg, loc) ->
+    make_diag ~severity:Lsp_types.DiagnosticSeverity.Warning
+      (sourcespan_to_range loc)
+      (sprintf "Type warning: %s" msg)
   | Unsupported (msg, loc) ->
     make_diag (sourcespan_to_range loc)
       (sprintf "Unsupported: %s" msg)

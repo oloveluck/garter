@@ -1,12 +1,12 @@
 def list_head(l):
   match l:
-    | nil => "empty"
+    | nil => 0
     | (h, t) => h
 
 def list_second(l):
   match l:
-    | nil => "no elements"
-    | (h, nil) => "only one element"
+    | nil => 0
+    | (h, nil) => 0
     | (h1, (h2, t)) => h2
 
 def sum_matrix_2x2(m):
@@ -17,8 +17,7 @@ def sum_matrix_2x2(m):
 def map_option(f, opt):
   match opt:
     | (true, x) => (true, f(x))
-    | (false, _) => (false, nil)
-    | _ => (false, nil)
+    | _ => (false, 0)
 
 def get_or_else(opt, default):
   match opt:
@@ -26,15 +25,14 @@ def get_or_else(opt, default):
     | _ => default
 
 def safe_sub(a, b):
-  if b > a: ("err", "would be negative")
-  else: ("ok", a - b)
+  if b > a: (false, 0)
+  else: (true, a - b)
 
 def unwrap_result(r):
   match r:
-    | ("ok", v) => v
-    | ("err", e) =>
-      print("Error:");
-      print(e);
+    | (true, v) => v
+    | _ =>
+      print("Error: underflow");
       -999
 
 print("Pattern matching examples");
@@ -50,7 +48,7 @@ print("sum_matrix_2x2:");
 print(sum_matrix_2x2(matrix));
 
 let some5 = (true, 5) in
-let none = (false, nil) in
+let none = (false, 0) in
 let double = (lambda (x): x * 2) in
 print("map_option (Some 5) double:");
 print(map_option(double, some5));

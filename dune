@@ -4,6 +4,7 @@
   assembly
   compile
   compilehelpers
+  diagnostics
   wrapnatives
   naivestack
   freevars

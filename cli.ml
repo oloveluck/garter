@@ -50,11 +50,19 @@ let build_exe ~no_builtins file output =
   in
   (* Compile to assembly *)
   (match compile_file_to_string ~no_builtins file file with
-  | Error (errs, _) ->
-    Printf.eprintf "Compilation errors:\n%s\n"
-      (String.concat "\n" (print_errors errs));
+  | Error (errs, trace) ->
+    let source = match Diagnostics.source_from_trace trace with
+      | Some s -> s | None -> "" in
+    Printf.eprintf "%s" (Diagnostics.format_errors source errs);
     exit 1
-  | Ok (asm, _) ->
+  | Ok (asm, trace) ->
+    (* Display type warnings on stderr *)
+    let type_warnings = Infer.get_warnings () in
+    if type_warnings <> [] then begin
+      let source = match Diagnostics.source_from_trace trace with
+        | Some s -> s | None -> "" in
+      Printf.eprintf "%s" (Diagnostics.format_errors source type_warnings)
+    end;
     let oc = open_out asm_file in
     output_string oc asm;
     close_out oc);

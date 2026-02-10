@@ -20,28 +20,6 @@ def filter(p, xs):
       if p(h): (h, filter(p, t))
       else: filter(p, t)
 
-def zip_with(f, xs, ys):
-  match xs:
-    | nil => nil
-    | (hx, tx) =>
-      match ys:
-        | nil => nil
-        | (hy, ty) => (f(hx, hy), zip_with(f, tx, ty))
-
-def take(n, xs):
-  if n == 0: nil
-  else:
-    match xs:
-      | nil => nil
-      | (h, t) => (h, take(n - 1, t))
-
-def drop(n, xs):
-  if n == 0: xs
-  else:
-    match xs:
-      | nil => nil
-      | (h, t) => drop(n - 1, t)
-
 def unfold(done, step, seed):
   if done(seed): nil
   else:
@@ -49,43 +27,25 @@ def unfold(done, step, seed):
       | (val, next) => (val, unfold(done, step, next))
       | _ => nil
 
-def para(f, z, xs):
-  match xs:
-    | nil => z
-    | (h, t) => f(h, t, para(f, z, t))
-
 def sum(xs): foldr((lambda (x, acc): x + acc), 0, xs)
-def product(xs): foldl((lambda (acc, x): acc * x), 1, xs)
 def length(xs): foldl((lambda (acc, x): acc + 1), 0, xs)
 def reverse(xs): foldl((lambda (acc, x): (x, acc)), nil, xs)
 def append(xs, ys): foldr((lambda (x, acc): (x, acc)), ys, xs)
-def concat(xss): foldr(append, nil, xss)
 
 let nums = (1, (2, (3, (4, (5, nil))))) in
-let nums2 = (10, (20, (30, nil))) in
 
 print("Recursion schemes demo");
 
 print("sum:");
 print(sum(nums));
-print("product:");
-print(product(nums));
 print("length:");
 print(length(nums));
-print("reverse:");
+print("reversed:");
 print(reverse(nums));
 print("doubled:");
 print(map((lambda (x): x * 2), nums));
 print("filtered > 2:");
 print(filter((lambda (x): x > 2), nums));
-print("zip_with (+):");
-print(zip_with((lambda (a, b): a + b), nums, nums2));
-print("take 3:");
-print(take(3, nums));
-print("drop 3:");
-print(drop(3, nums));
-print("append:");
-print(append(nums2, nums));
 
 let range = unfold(
   (lambda (n): n > 5),
@@ -93,10 +53,5 @@ let range = unfold(
   1) in
 print("unfold range 1-5:");
 print(range);
-
-let tails = para(
-  (lambda (h, t, acc): (t, acc)),
-  nil,
-  (1, (2, (3, nil)))) in
-print("tails:");
-tails
+print("append:");
+append(nums, (6, (7, nil)))

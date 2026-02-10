@@ -67,7 +67,7 @@ unsafe fn detect_object_kind(scan_ptr: *mut u64, from_start: *mut u64, from_end:
             && second_word > MIN_CODE_POINTER
             && (second_word & 0x7) == 0
         {
-            let num_frees = (*scan_ptr.add(1)) / 2;
+            let num_frees = *scan_ptr.add(2);
             return HeapObjectKind::Closure { num_frees };
         }
     }
@@ -126,7 +126,7 @@ pub unsafe fn copy_if_needed(garter_val_addr: *mut u64, heap_top: *mut u64) -> *
             return heap_top;
         }
 
-        let num_frees = (*old_addr.add(1)) / 2;
+        let num_frees = *old_addr.add(2);
         let words = 3 + num_frees;
         return copy_object(old_addr, heap_top, words, CLOSURE_TAG, garter_val_addr);
     }
